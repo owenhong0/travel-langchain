@@ -1,7 +1,8 @@
 {
   "dockerfile_lines": [],
   "graphs": {
-    "main": "./main.py:graph"
+    "main": "./main.py:graph",
+    "trip_info": "./trip_info_graph.py:graph"
   },
   "env": "./.env",
   "python_version": "3.11",
