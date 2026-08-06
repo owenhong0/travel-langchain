@@ -1,5 +1,8 @@
+import json
 import operator
+import os
 import time
+from datetime import date
 from typing import TypedDict, Optional, List, Annotated
 
 from anthropic import APIStatusError
@@ -7,16 +10,23 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage, get_buffer_string, AIMessage
+from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph, MessagesState
 from langgraph.types import Send, interrupt, Command
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 load_dotenv()
 
-llm = ChatAnthropic(model_name="claude-sonnet-5", thinking={"type": "disabled"})  # used for .with_structured_output(...) calls
+# llm = ChatAnthropic(model_name="claude-sonnet-5", thinking={"type": "disabled"})  # used for .with_structured_output(...) calls
+
+llm = ChatOpenAI(
+    model="anthropic/claude-sonnet-5",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+)
 retryable_llm = llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
 
 def invoke_structured_with_retry(structured_llm, messages, schema, attempts=3):
@@ -25,13 +35,14 @@ def invoke_structured_with_retry(structured_llm, messages, schema, attempts=3):
         try:
             return structured_llm.invoke(messages)
         except ValidationError as e:
-            # Known issue: for schemas whose sole field is a list, the model
-            # sometimes returns the whole JSON payload as a string instead of
-            # a parsed object. Try to recover by parsing it ourselves.
             errors = e.errors()
-            if len(errors) == 1 and errors[0]["type"] == "list_type" and isinstance(errors[0]["input"], str):
+            bad_field = next(
+                (err for err in errors if err["type"] == "list_type" and isinstance(err["input"], str)),
+                None,
+            )
+            if bad_field:
                 try:
-                    return schema.model_validate_json(errors[0]["input"])
+                    return schema.model_validate_json(bad_field["input"])
                 except Exception:
                     pass  # fall through to retry
             last_error = e
@@ -73,6 +84,11 @@ class InterviewState(MessagesState):
     analyst: Analyst # Analyst asking questions
     interview: str # Interview transcript
     sections: list # Final key we duplicate in outer state for Send() API
+
+class OrderedLeg(BaseModel):
+    origin_city: str
+    destination_city: str
+    depart_date: str
 
 class DestinationCandidate(BaseModel):
     city: str
@@ -120,6 +136,26 @@ class DestinationResearchState(TypedDict):
     destination_candidates: list
     finalized_destinations: list
     review_decision: str
+    ordered_destinations: list[dict]
+    legs: list[dict]
+    review_decision: str  # from review_destinations: "finalize" | "revise"
+    order_decision: str  # from review_order: "finalize" | "revise"
+    order_feedback: Optional[str]
+    trip_start_date: Optional[str]
+    trip_end_date: Optional[str]
+    dated_itinerary: list[dict]  # ordered_destinations + concrete depart/return per stop
+    date_decision: str
+    date_feedback: Optional[str]
+
+class DatedStop(BaseModel):
+    city: str
+    country: str
+    depart_date: str   # ISO 8601
+    return_date: str   # ISO 8601, i.e. departure date for the *next* leg
+    duration_days: int
+
+class DatedItinerary(BaseModel):
+    stops: list[DatedStop]
 
 class SearchQuery(BaseModel):
     search_query: str = Field(None, description="Search query for retrieval.")
@@ -171,7 +207,7 @@ def create_analysts(state: DestinationResearchState):
     structured_llm = llm.with_structured_output(TravelAnalysts)
     system_message = analyst_instructions.format(
         trip_preferences=state["trip_preferences"],
-        max_analysts=state.get("max_analysts", 3),
+        max_analysts=state.get("max_analysts", 5),
         human_analyst_feedback=state.get('human_analyst_feedback', '')
     )
     analyst = invoke_structured_with_retry(structured_llm, [
@@ -442,8 +478,6 @@ def initiate_all_interviews(state: DestinationResearchState):
             for analyst in state["analysts"]
         ]
 
-APPROVE_SIGNALS = {"approve", "y", "yes", "all", ""}
-
 def _match_candidates(token: str, candidates: list) -> list[int]:
     """Match one comma-split token against candidate indices or city/country names."""
     token = token.strip()
@@ -478,7 +512,7 @@ def parse_review_response(raw: str, candidates: list) -> dict:
 
 def review_destinations(state: DestinationResearchState):
     raw_response = interrupt({
-        "type": "destination_review",
+        "type": "review_destinations",
         "message": "Reply 'approve' (or leave blank) to take all of them, list indices or "
                    "city/country names (comma-separated) to pick specific ones, or type "
                    "anything else to revise your preferences.",
@@ -505,8 +539,193 @@ def review_destinations(state: DestinationResearchState):
     else:
         raise ValueError(f"Unknown response type: {response['type']}")
 
-def route_after_review(state: DestinationResearchState):
-    return "END" if state.get("review_decision") == "finalize" else "create_analysts"
+ordering_instructions = """Given these finalized destinations and the traveler's preferences,
+propose the most sensible visiting order — minimize backtracking, respect any stated season/date
+constraints, and note the reasoning briefly.
+
+Entry/exit logistics are a hard consideration, not a minor detail: the traveler's trip must
+start and end at cities with real international airport access. Read each destination's
+rationale for cues about this — mentions of "international gateway," "main airport," a
+destination requiring its own domestic flight to reach, or being reachable only by a
+separate/standalone leg are all signals about how well-suited a city is as a start or end point.
+
+A destination that requires a dedicated domestic flight to reach (disconnected from the rest of
+the route by rail/road) should never be the last stop unless it independently has major
+international airport access itself — ending the trip somewhere that requires flying back to a
+gateway city before leaving the country defeats the point of a logical sequence. Prefer starting
+and ending at the same city, or at minimum ending somewhere with direct international
+departures, over an ordering that's geographically tidy but strands the traveler far from an
+exit point."""
+
+class OrderedStop(BaseModel):
+    city: str
+    country: str
+    recommended_duration_days: str = Field(description="e.g. '2-4'")
+    purpose: str = Field(description="Why this stop sits here in the sequence")
+    is_international_gateway: bool = Field(
+        description="Whether this city has its own major international airport access"
+    )
+
+class OrderedItinerary(BaseModel):
+    ordered_destinations: list[OrderedStop]
+    rationale: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def unwrap_self_nested_payload(cls, data):
+        if isinstance(data, dict) and isinstance(data.get("ordered_destinations"), str):
+            try:
+                parsed = json.loads(data["ordered_destinations"])
+                if isinstance(parsed, dict) and "ordered_destinations" in parsed:
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return data
+
+def order_destinations(state: DestinationResearchState):
+    structured_llm = llm.with_structured_output(OrderedItinerary)
+    feedback = state.get("order_feedback")
+    feedback_block = f"\nTraveler feedback on the previous ordering: {feedback}" if feedback else ""
+    expected = state["finalized_destinations"]
+
+    response = invoke_structured_with_retry(structured_llm, [
+        SystemMessage(content=ordering_instructions),
+        HumanMessage(
+            content=f"Destinations ({len(expected)} total — every one of these must appear "
+                    f"exactly once in your output, none dropped): {expected}\n"
+                    f"Preferences: {state['trip_preferences']}{feedback_block}"
+        ),
+    ], OrderedItinerary)
+
+    stops = [stops.model_dump() for stops in response.ordered_destinations]
+    if len(stops) != len(expected):
+        raise ValueError(
+            f"order_destinations dropped destinations: expected {len(expected)}, got {len(stops)}"
+        )
+    if not stops[-1]["is_international_gateway"]:
+        raise ValueError(
+            f"order_destinations ended the trip at {stops[-1]['city']}, which isn't flagged "
+            f"as having international airport access — retry with better gateway placement"
+        )
+    return {"ordered_destinations": stops}
+
+def route_after_destination_review(state: DestinationResearchState):
+    return "order_destinations" if state.get("review_decision") == "finalize" else "create_analysts"
+
+def review_order(state: DestinationResearchState):
+    stops = state["ordered_destinations"]
+    raw = interrupt({
+        "type": "order_review",
+        "message": "Reply 'approve' to finalize, 'drop: <city, city>' to remove optional legs "
+                   "(e.g. 'drop: Busan, Jeju'), or describe other changes.",
+        "ordered_destinations": stops,
+    })
+
+    response = parse_order_response(raw, stops) if isinstance(raw, str) else raw
+
+    if response["type"] == "finalize":
+        return {"order_decision": "finalize"}
+    elif response["type"] == "drop":
+        remaining = [s for i, s in enumerate(stops) if i not in response["drop_indices"]]
+        return {"ordered_destinations": remaining, "order_decision": "finalize"}
+    else:
+        return {"order_feedback": response["feedback"], "order_decision": "revise"}
+
+def route_after_order_review(state: DestinationResearchState):
+    return "request_start_date" if state.get("order_decision") == "finalize" else "order_destinations"
+
+def request_start_date(state: DestinationResearchState):
+    while True:
+        raw = interrupt({
+            "type": "start_date_request",
+            "message": "Earliest departure date and latest return/must-leave date, "
+                       "both required (YYYY-MM-DD, YYYY-MM-DD):",
+            "ordered_destinations": state["ordered_destinations"],
+        })
+        start, _, end = (raw.partition(",") if isinstance(raw, str)
+                         else (raw.get("start_date", ""), None, raw.get("end_date", "")))
+        start, end = start.strip(), end.strip()
+        if start and end:
+            return {"trip_start_date": start, "trip_end_date": end}
+        # loop repeats, interrupt fires again with the same message
+
+dating_instructions = """Given this ordered itinerary, a trip start date, and a hard end date
+(the traveler must be out of the country by this date), assign concrete depart/return dates to
+each stop. Pick a duration within each stop's recommended range that respects any stated season
+constraints. Stops are sequential and back-to-back unless a stop's purpose implies buffer days
+are needed. The final stop's return_date must not exceed the trip end date — if the recommended
+durations don't fit within the available window, compress toward the minimum of each stop's
+range (dropping buffer days first) rather than exceeding the end date."""
+
+def compute_dates(state: DestinationResearchState):
+    structured_llm = llm.with_structured_output(DatedItinerary)
+    feedback = state.get("date_feedback")
+    feedback_block = f"\nTraveler feedback on previous dates: {feedback}" if feedback else ""
+    end_date = state.get("trip_end_date")
+    end_date_block = f"\nHard end date (must be out of country by): {end_date}" if end_date else ""
+
+    result = invoke_structured_with_retry(structured_llm, [
+        SystemMessage(content=dating_instructions),
+        HumanMessage(content=f"Trip start date: {state['trip_start_date']}{end_date_block}\n"
+                              f"Itinerary: {state['ordered_destinations']}{feedback_block}"),
+    ], DatedItinerary)
+
+    stops = [s.model_dump() for s in result.stops]
+
+    # hard check — don't rely on the model honoring the constraint unverified
+    if end_date and stops:
+        last_return = date.fromisoformat(stops[-1]["return_date"])
+        if last_return > date.fromisoformat(end_date):
+            raise ValueError(
+                f"compute_dates exceeded the trip end date: last return {last_return} "
+                f"is after deadline {end_date}"
+            )
+
+    return {"dated_itinerary": stops}
+
+def review_dates(state: DestinationResearchState):
+    raw = interrupt({
+        "type": "date_review",
+        "message": "Reply 'approve' or describe date changes.",
+        "dated_itinerary": state["dated_itinerary"],
+    })
+    text = raw.strip() if isinstance(raw, str) else None
+    if text is not None and text.lower() in APPROVE_SIGNALS:
+        return {"date_decision": "finalize"}
+    feedback = text if text is not None else raw.get("feedback", "")
+    return {"date_feedback": feedback, "date_decision": "revise"}
+
+def route_after_date_review(state: DestinationResearchState):
+    return "END" if state.get("date_decision") == "finalize" else "compute_dates"
+
+def _match_ordered_stops(token: str, stops: list) -> list[int]:
+    token = token.strip()
+    if not token:
+        return []
+    if token.isdigit():
+        idx = int(token)
+        return [idx] if 0 <= idx < len(stops) else []
+    return [i for i, s in enumerate(stops) if token.lower() in s["city"].lower()]
+
+def parse_order_response(raw: str, stops: list) -> dict:
+    text = (raw or "").strip()
+
+    if text.lower() in APPROVE_SIGNALS:
+        return {"type": "finalize"}
+
+    if text.lower().startswith(("drop:", "remove:")):
+        _, _, rest = text.partition(":")
+        dropped: set[int] = set()
+        for tok in rest.split(","):
+            hits = _match_ordered_stops(tok, stops)
+            if not hits:
+                return {"type": "revise", "feedback": f"Couldn't match '{tok.strip()}' to drop"}
+            dropped.update(hits)
+        return {"type": "drop", "drop_indices": dropped}
+
+    return {"type": "revise", "feedback": text}
+
+
 
 builder = StateGraph(DestinationResearchState)
 builder.add_node("create_analysts", create_analysts)
@@ -514,16 +733,35 @@ builder.add_node("human_feedback", human_feedback)
 builder.add_node("conduct_interview", interview_builder.compile())
 builder.add_node("extract_candidates", extract_candidates)
 builder.add_node("review_destinations", review_destinations)
+builder.add_node("order_destinations", order_destinations)
+builder.add_node("review_order", review_order)
+builder.add_node("request_start_date", request_start_date)
+builder.add_node("compute_dates", compute_dates)
+builder.add_node("review_dates", review_dates)
 
 builder.add_edge(START, "create_analysts")
 builder.add_edge("create_analysts", "human_feedback")
-builder.add_conditional_edges("human_feedback", initiate_all_interviews, ["create_analysts", "conduct_interview"])
+builder.add_conditional_edges(
+    "human_feedback", initiate_all_interviews,
+    ["create_analysts", "conduct_interview"],
+)
 builder.add_edge("conduct_interview", "extract_candidates")
 builder.add_edge("extract_candidates", "review_destinations")
-builder.add_conditional_edges("review_destinations", route_after_review, {
-    "END": END,
-    "create_analysts": "create_analysts",
-})
+builder.add_conditional_edges(
+    "review_destinations", route_after_destination_review,
+    ["order_destinations", "create_analysts"],
+)
+builder.add_edge("order_destinations", "review_order")
+builder.add_conditional_edges(
+    "review_order", route_after_order_review,
+    ["request_start_date", "order_destinations"],
+)
+builder.add_edge("request_start_date", "compute_dates")
+builder.add_edge("compute_dates", "review_dates")
+builder.add_conditional_edges(
+    "review_dates", route_after_date_review,
+    {"END": END, "compute_dates": "compute_dates"},
+)
 
 destination_graph = builder.compile(interrupt_before=["human_feedback"])
 
@@ -574,6 +812,34 @@ if __name__ == "__main__":
 
                                  "or describe what you'd change: ")
 
+            result = graph.invoke(Command(resume=resume_value), config=config)
+
+
+        elif interrupt_type == "order_review":
+
+            print("Proposed order:")
+
+            for i, s in enumerate(interrupt_data["ordered_destinations"]):
+                print(f"  [{i}] {s['city']}, {s['country']}")
+
+            resume_value = input("Approve (blank/approve), drop legs (e.g. 'drop: Busan, Jeju'), "
+
+                                 "or describe other changes: ")
+
+            result = graph.invoke(Command(resume=resume_value), config=config)
+
+        elif interrupt_type == "start_date_request":
+            print("Order finalized:")
+            for i, s in enumerate(interrupt_data["ordered_destinations"]):
+                print(f"  [{i}] {s['city']}")
+            resume_value = input("Earliest available departure date (YYYY-MM-DD): ")
+            result = graph.invoke(Command(resume=resume_value), config=config)
+
+        elif interrupt_type == "date_review":
+            print("Proposed dates:")
+            for s in interrupt_data["dated_itinerary"]:
+                print(f"  {s['city']}: {s['depart_date']} → {s['return_date']} ({s['duration_days']}d)")
+            resume_value = input("Approve dates (blank/approve), or describe changes: ")
             result = graph.invoke(Command(resume=resume_value), config=config)
 
         else:

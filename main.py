@@ -10,6 +10,7 @@ from anthropic.resources.beta.messages import messages
 from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.types import Send, interrupt, Command
@@ -26,6 +27,12 @@ duffel_api_key = os.getenv("DUFFEL_API_KEY")
 DUFFEL_BASE_URL = "https://api.duffel.com"
 
 client = Duffel(access_token=duffel_api_key)
+
+router_llm = ChatOpenAI(
+    model="anthropic/claude-sonnet-5",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+)
 
 class loyalty_programs(Enum):
     "BA"
@@ -84,7 +91,7 @@ def user_input(state: GraphState):
     """)
     trip_info = HumanMessage(content=state["user_message"])
 
-    agent = create_agent(model="anthropic:claude-sonnet-4-6", response_format=FlightQuery)
+    agent = create_agent(model=router_llm, response_format=FlightQuery)
     response = agent.invoke({"messages": [formatting_guidelines,trip_info]})
     flight_query = response["structured_response"]
     flight_query.departure_date = ensure_future_date(flight_query.departure_date)
