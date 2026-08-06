@@ -2,7 +2,8 @@
   "dockerfile_lines": [],
   "graphs": {
     "main": "./main.py:graph",
-    "trip_info": "./trip_info_graph.py:graph"
+    "trip_info": "./trip_info_graph.py:graph",
+    "transportation": "./leg_transportation_graph.py:transport_graph"
   },
   "env": "./.env",
   "python_version": "3.11",

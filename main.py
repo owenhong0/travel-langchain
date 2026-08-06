@@ -3,7 +3,7 @@ import os
 from datetime import date
 from enum import Enum
 from multiprocessing import context
-from typing import Annotated, TypedDict, Literal
+from typing import Annotated, TypedDict, Literal, Optional
 
 import requests
 from anthropic.resources.beta.messages import messages
@@ -42,6 +42,8 @@ class GraphState(TypedDict):
     flight_query: dict
     resolved_origins: list[str]
     resolved_destinations: list[str]
+    origin: Optional[str]  # NEW — per-branch value set only via Send payload
+    destination: Optional[str]  # NEW — per-branch value set only via Send payload
     context: Annotated[list, operator.add]
     ranked_results: list
 
@@ -99,6 +101,7 @@ def user_input(state: GraphState):
         flight_query.returning_date = ensure_future_date(flight_query.returning_date)
     return {"flight_query": flight_query.model_dump(), "context": []}
 
+# main.py
 def duffel_places_lookup(city_name: str) -> list[str]:
     """Deterministic lookup — no LLM. Returns one code (metro) or several (individual airports)."""
     headers = {
@@ -111,14 +114,12 @@ def duffel_places_lookup(city_name: str) -> list[str]:
     resp.raise_for_status()
     places = resp.json()["data"]
 
-    # Prefer a city-type place with an IATA code covering multiple airports
     for place in places:
         if place.get("type") == "city" and place.get("iata_code"):
             return [place["iata_code"]]
 
-    # Fallback: collect individual airport codes
     airport_codes = [p["iata_code"] for p in places if p.get("type") == "airport"]
-    return airport_codes or [city_name]  # last-resort passthrough
+    return airport_codes  # no more silent passthrough of the raw city_name string
 
 def resolve_iata_codes(state: GraphState):
     fq = FlightQuery.model_validate(state["flight_query"])
@@ -176,35 +177,22 @@ def fan_out_airports(state: GraphState):
     return branches
 
 
-
-def search_cash_fare(state):
-    fq = FlightQuery.model_validate(state["flight_query"])
-    headers = {
-        "Authorization": f"Bearer {duffel_api_key}",
-        "Duffel-Version": DUFFEL_VERSION,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-    payload = {
-        "data": {
-            "slices": [{
-                "origin": state["origin"],
-                "destination": state["destination"],
-                "departure_date": fq.departure_date,
-            }],
-            "passengers": [{"type": "adult"} for _ in fq.passengers] or [{"type": "adult"}],
-        }
-    }
+# main.py
+def fetch_flight_offers(origin: str, destination: str, departure_date: str, passenger_count: int) -> list[dict]:
+    headers = {"Authorization": f"Bearer {duffel_api_key}", "Duffel-Version": DUFFEL_VERSION,
+               "Content-Type": "application/json", "Accept": "application/json"}
+    payload = {"data": {"slices": [{"origin": origin, "destination": destination,
+                                     "departure_date": departure_date}],
+                         "passengers": [{"type": "adult"}] * max(passenger_count, 1)}}
     resp = requests.post(f"{DUFFEL_BASE_URL}/air/offer_requests?return_offers=true",
-                         json=payload, headers=headers)
-    if not resp.ok:
-        print(resp.status_code, resp.json())
+                          json=payload, headers=headers)
     resp.raise_for_status()
-    offers = resp.json()["data"]["offers"]
+    return [extract_offer(o).model_dump() for o in resp.json()["data"]["offers"]]
 
-    parsed = [extract_offer(o).model_dump() for o in offers]  # .model_dump() — see note below
+def search_cash_fare(state: GraphState):  # existing node now just calls the helper
+    fq = FlightQuery.model_validate(state["flight_query"])
+    parsed = fetch_flight_offers(state["origin"], state["destination"], fq.departure_date, len(fq.passengers))
     return {"context": parsed}
-
 
 def rank_options(state: GraphState):
     ranked = sorted(state["context"], key=lambda o: o["price"]["total_amount"])
