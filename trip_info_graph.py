@@ -99,6 +99,11 @@ class DestinationCandidate(BaseModel):
     recommended_duration_days_max: int
     rationale: str = Field(description="Why this fits the traveler's stated preferences")
     date: str = Field(description="What date best fits the traveler's stated preferences")
+    requires_flight_or_ferry: bool = Field(
+        description="True if this destination is an island, archipelago, or otherwise not "
+                    "reachable by train/bus/car from the mainland/rest of the region — e.g. "
+                    "Jeju, Hawaii, Santorini. False for anywhere reachable by ground transport."
+    )
 
 class DestinationOptions(BaseModel):
     candidates: list[DestinationCandidate]
@@ -150,9 +155,12 @@ class DestinationResearchState(TypedDict):
 class DatedStop(BaseModel):
     city: str
     country: str
-    depart_date: str   # ISO 8601
-    return_date: str   # ISO 8601, i.e. departure date for the *next* leg
+    depart_date: str
+    return_date: str
     duration_days: int
+    requires_flight_or_ferry: bool = Field(
+        description="Carried over — whether this stop is only reachable by flight/ferry"
+    )
 
 class DatedItinerary(BaseModel):
     stops: list[DatedStop]
@@ -410,7 +418,13 @@ specified one.
 For each, include the city, country, recommended season, a recommended duration range in days,
 and a synthesized rationale drawing on what the analysts said, noting which source types
 (government/magazine/unique_experience) support it. If analysts disagree on season or duration
-for the same destination, use your judgment to reconcile into a single reasonable range."""
+for the same destination, use your judgment to reconcile into a single reasonable range.
+
+Also determine requires_flight_or_ferry: true if this destination is an island, archipelago, or
+otherwise cut off from ground transport to the rest of the region/country (e.g. Jeju, Hawaii,
+Santorini, Zanzibar) — false if it's reachable by train/bus/car. Use general knowledge of the
+destination's geography plus any cues in the source material (mentions of ferries, domestic
+flights, or "island" language)."""
 
 def extract_candidates(state: DestinationResearchState):
     sections = state["sections"]
@@ -544,10 +558,17 @@ propose the most sensible visiting order — minimize backtracking, respect any 
 constraints, and note the reasoning briefly.
 
 Entry/exit logistics are a hard consideration, not a minor detail: the traveler's trip must
-start and end at cities with real international airport access. Read each destination's
-rationale for cues about this — mentions of "international gateway," "main airport," a
-destination requiring its own domestic flight to reach, or being reachable only by a
-separate/standalone leg are all signals about how well-suited a city is as a start or end point.
+start and end at cities with real international airport access.
+
+The FIRST stop in your output must always be the international gateway city itself — this
+represents the arrival leg, even if it's just a short transit stay before heading to the first
+"real" destination. If the traveler's plan later returns to that same gateway city for its own
+dedicated purpose (shopping, appointments, departure prep), list it AGAIN as a separate stop at
+that later point in the sequence — do not merge the arrival transit and the dedicated return
+visit into a single entry, even though they're the same city.
+
+Carry forward each destination's requires_flight_or_ferry value unchanged from the input data —
+do not recompute or guess it, just preserve what was given.
 
 A destination that requires a dedicated domestic flight to reach (disconnected from the rest of
 the route by rail/road) should never be the last stop unless it independently has major
@@ -564,6 +585,10 @@ class OrderedStop(BaseModel):
     purpose: str = Field(description="Why this stop sits here in the sequence")
     is_international_gateway: bool = Field(
         description="Whether this city has its own major international airport access"
+    )
+    requires_flight_or_ferry: bool = Field(
+        description="Carried over from the destination candidate — whether reaching this "
+                    "stop from the previous one requires flight/ferry rather than ground transport"
     )
 
 class OrderedItinerary(BaseModel):
@@ -598,9 +623,18 @@ def order_destinations(state: DestinationResearchState):
     ], OrderedItinerary)
 
     stops = [stops.model_dump() for stops in response.ordered_destinations]
-    if len(stops) != len(expected):
+
+    # loosened: gateway city may legitimately appear twice (arrival + dedicated stay),
+    # so allow more stops than expected, but never fewer (that means something got dropped)
+    if len(stops) < len(expected):
         raise ValueError(
-            f"order_destinations dropped destinations: expected {len(expected)}, got {len(stops)}"
+            f"order_destinations dropped destinations: expected at least {len(expected)}, got {len(stops)}"
+        )
+
+    if not stops[0]["is_international_gateway"]:
+        raise ValueError(
+            f"order_destinations didn't start at an international gateway city (started at "
+            f"{stops[0]['city']}) — the arrival leg must be represented as the first stop, retry"
         )
     if not stops[-1]["is_international_gateway"]:
         raise ValueError(
@@ -655,7 +689,15 @@ each stop. Pick a duration within each stop's recommended range that respects an
 constraints. Stops are sequential and back-to-back unless a stop's purpose implies buffer days
 are needed. The final stop's return_date must not exceed the trip end date — if the recommended
 durations don't fit within the available window, compress toward the minimum of each stop's
-range (dropping buffer days first) rather than exceeding the end date."""
+range (dropping buffer days first) rather than exceeding the end date.
+
+If the first stop is a pure arrival/transit stop at the international gateway (distinct from a
+later dedicated stay at the same city), give it a short duration (0-1 days) reflecting travel
+onward the same or next day, rather than treating it as a full destination stay.
+
+Carry forward each stop's requires_flight_or_ferry value unchanged from the input data — do not
+recompute or guess it, just preserve what was given.
+"""
 
 def compute_dates(state: DestinationResearchState):
     structured_llm = llm.with_structured_output(DatedItinerary)
