@@ -62,6 +62,7 @@ class Leg(TypedDict):
 class LegTransportState(TypedDict):
     leg: Leg
     raw_options: Annotated[list[dict], operator.add]  # parallel search writes, never cleared
+    reconciled_options: list[dict]                     # this round's merged/confidence-tagged options, single-writer
     options: list[dict]                                # recommended/ordered snapshot, single-writer
     recommendation_reasoning: Optional[str]
     search_round: int
@@ -91,13 +92,6 @@ def derive_legs(state: TransportPlanningState):
                                      or stops[i + 1].get("requires_flight_or_ferry", False),
     } for i in range(len(stops) - 1)]
     return {"legs": legs}
-
-def _suggest_modes(leg: dict) -> list[str]:
-    if leg.get("requires_flight_or_ferry"):
-        return ["flight", "ferry"]
-    if leg["origin_country"] != leg["destination_country"]:
-        return ["flight"]
-    return ["train", "bus", "car"]
 
 # Known island/archipelago destinations where ground transport (train/bus/car) to the
 # mainland isn't possible — flight or ferry only, regardless of same-country status.
@@ -148,36 +142,72 @@ def fan_out_legs(state: TransportPlanningState):
 def fan_out_modes(state: LegTransportState):
     """One Send per DISTINCT search node needed. Train/bus/ferry/combined all come from
     the same Rome2Rio route page, so they share one search node rather than three+
-    uncoordinated calls that can disagree with each other."""
+    uncoordinated calls that can disagree with each other. verify_route_options runs in
+    parallel as an independent corroboration source (operator sites, not Rome2Rio)."""
     modes = set(state["leg"]["modes_requested"])
     sends = []
     if "flight" in modes:
         sends.append(Send("search_flight", state))
     if modes & {"train", "bus", "ferry"}:
         sends.append(Send("search_route_options", state))
+        sends.append(Send("verify_route_options", state))
     if "car" in modes:
         sends.append(Send("search_car_rental", state))
     return sends
 
-# ---------- Shared helpers ----------
+# ---------- Domain configuration ----------
 
+# Flat lists — used as a last-resort backfill only when live discovery + the
+# country-specific map both come up thin. Not the primary mechanism for any region.
 RAIL_DOMAINS = ["raileurope.com", "trainline.com", "omio.com"]
 BUS_DOMAINS = ["flixbus.com", "busbud.com"]
+
+RAIL_DOMAINS_BY_COUNTRY = {
+    "default": RAIL_DOMAINS,
+    "South Korea": ["korail.com", "letskorail.com", "kr.trip.com"],
+    "Japan": ["jorudan.co.jp", "hyperdia.com", "japanrailpass.net"],
+}
+BUS_DOMAINS_BY_COUNTRY = {
+    "default": BUS_DOMAINS,
+    "South Korea": ["kobus.co.kr", "bustago.or.kr", "kr.trip.com"],
+}
 FERRY_DOMAINS = ["directferries.com", "ferryhopper.com"]
 CAR_RENTAL_DOMAINS = ["kayak.com", "rentalcars.com", "expedia.com"]
 ROME2RIO_DOMAIN = ["rome2rio.com"]
 
+def _flatten_by_country(country: str, *domain_maps: dict) -> list[str]:
+    """Look up each domain map for this country (falling back to its 'default' entry)
+    and flatten into one deduped list."""
+    out: list[str] = []
+    for dm in domain_maps:
+        for d in dm.get(country, dm["default"]):
+            if d not in out:
+                out.append(d)
+    return out
+
 _domain_cache: dict[tuple[str, str], list[str]] = {}
 
-def discover_relevant_domains(query_hint: str, cache_key: tuple[str, str], max_domains: int = 4) -> list[str]:
+# ---------- Shared helpers ----------
+
+def _tavily_results(data) -> list[dict]:
+    """TavilySearch.invoke() can return a plain string (error/status message)
+    instead of the expected {"results": [...]} dict — normalize defensively."""
+    if isinstance(data, dict):
+        return data.get("results", [])
+    return []
+
+def discover_relevant_domains(
+    query_hint: str, cache_key: tuple[str, str], max_domains: int = 4
+) -> list[str]:
     """Unrestricted search to find likely authoritative domains for this leg's
-    destination/mode. Cached per (destination, mode) so re-search rounds and
-    other legs to the same place don't re-pay the discovery call."""
+    destination/mode. Cached per (country, mode) so re-search rounds and other
+    legs in the same country don't re-pay the discovery call. This is the PRIMARY
+    domain-selection path — static lists are only a backfill when this is thin."""
     if cache_key in _domain_cache:
         return _domain_cache[cache_key]
     data = TavilySearch(max_results=5).invoke({"query": query_hint})
     domains = []
-    for r in data.get("results", data):
+    for r in _tavily_results(data):
         domain = urlparse(r["url"]).netloc.replace("www.", "")
         if domain and domain not in domains:
             domains.append(domain)
@@ -213,6 +243,11 @@ def _clean_url(url: str | None, origin: str, destination: str) -> Optional[str]:
         return None
     return url
 
+def _clean_place_name(name: str) -> str:
+    """Strip parenthetical qualifiers like '(Busan)' before using a name in an
+    external lookup (Duffel places, rental search) that expects a plain city name."""
+    return re.sub(r"\s*\(.*?\)", "", name).strip()
+
 def _parse_duration_hours(duration: str | None) -> float:
     if not duration:
         return 0.0
@@ -222,9 +257,9 @@ def _parse_duration_hours(duration: str | None) -> float:
 
 # ---------- Search nodes ----------
 
-route_extraction_instructions = """You are extracting travel options from a Rome2Rio route
-comparison page for ONE specific origin-destination pair. The page typically lists several
-ways to travel (e.g. "Bus, train via X", "Ferry", "Drive", "Bus, ferry").
+route_extraction_instructions = """You are extracting travel options from a route
+comparison or operator page for ONE specific origin-destination pair. The page typically
+lists several ways to travel (e.g. "Bus, train via X", "Ferry", "Drive", "Bus, ferry").
 
 Extract every DISTINCT option relevant to train, bus, and/or ferry travel that appears on
 this page:
@@ -247,21 +282,46 @@ and do not fabricate anything. Never substitute a link from an unrelated route o
 
 def search_route_options(state: LegTransportState):
     leg = state["leg"]
-    query = f"{leg['origin']} to {leg['destination']} Rome2Rio travel options"
+    modes_requested = set(leg["modes_requested"]) & {"train", "bus", "ferry", "combined"}
+    mode_label = "/".join(sorted(modes_requested)) or "train/bus/ferry"
+
+    discovered = discover_relevant_domains(
+        f"official {mode_label} operator booking site {leg['origin']} {leg['destination']}",
+        cache_key=(leg["destination_country"], mode_label),
+    )
+    # discovery is primary; static list only backfills if discovery is thin
+    domains = list(dict.fromkeys(discovered + ROME2RIO_DOMAIN))
+    if len(domains) < 3:
+        domains += _flatten_by_country(
+            leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
+        ) + FERRY_DOMAINS
+
+    query = f"{leg['origin']} to {leg['destination']} {mode_label} schedule tickets"
     if state.get("review_feedback"):
         query += f" — traveler feedback: {state['review_feedback']}"
 
-    data = TavilySearch(max_results=3, include_domains=ROME2RIO_DOMAIN).invoke({"query": query})
-    docs = data.get("results", data)
+    data = TavilySearch(max_results=5, include_domains=domains, include_raw_content="text").invoke({"query": query})
+    docs = [d for d in _tavily_results(data) if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
+    for d in docs:
+        if d.get("raw_content"):
+            d["raw_content"] = d["raw_content"][:6000]
 
     if not docs:
-        discovered = discover_relevant_domains(
-            f"official rail, bus, and ferry operator booking site {leg['destination']}",
-            cache_key=(leg["destination"], "route"),
-        )
-        fallback_domains = discovered or (RAIL_DOMAINS + BUS_DOMAINS + FERRY_DOMAINS)
-        data = TavilySearch(max_results=3, include_domains=fallback_domains).invoke({"query": query})
-        docs = data.get("results", data)
+        fallback_domains = discovered or _flatten_by_country(
+            leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
+        ) + FERRY_DOMAINS
+        data = TavilySearch(
+            max_results=5,
+            include_domains=fallback_domains,
+            include_raw_content="text",
+        ).invoke({"query": query})
+        docs = [
+            d for d in _tavily_results(data)
+            if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])
+        ]
+        for d in docs:
+            if d.get("raw_content"):
+                d["raw_content"] = d["raw_content"][:6000]
 
     structured_llm = llm.with_structured_output(RouteOptions)
     result = invoke_structured_with_retry(structured_llm, [
@@ -269,7 +329,6 @@ def search_route_options(state: LegTransportState):
         HumanMessage(content=json.dumps(docs)),
     ], RouteOptions)
 
-    modes_requested = set(leg["modes_requested"])
     tagged = []
     for opt in result.options:
         d = opt.model_dump()
@@ -278,13 +337,46 @@ def search_route_options(state: LegTransportState):
             d["mode"] == "combined" and modes_requested & {"train", "bus", "ferry"}
         )
         if is_relevant:
-            tagged.append({**d, "round": state.get("search_round", 0)})
+            tagged.append({**d, "source": "rome2rio", "round": state.get("search_round", 0)})
     return {"raw_options": tagged}
 
-def _clean_place_name(name: str) -> str:
-    """Strip parenthetical qualifiers like '(Busan)' before using a name in an
-    external lookup (Duffel places, rental search) that expects a plain city name."""
-    return re.sub(r"\s*\(.*?\)", "", name).strip()
+def verify_route_options(state: LegTransportState):
+    """Independent corroboration source — searches operator-specific domains (rail/bus/
+    ferry company sites) discovered live for this leg's country, separate from
+    search_route_options' Rome2Rio-first approach. Feeds reconcile_options, which flags
+    whether each option was seen from one source or both."""
+    leg = state["leg"]
+    modes = set(leg["modes_requested"]) & {"train", "bus", "ferry"}
+    mode_label = "/".join(sorted(modes))
+
+    discovered = discover_relevant_domains(
+        f"official {mode_label} operator booking site {leg['origin']} {leg['destination']}",
+        cache_key=(leg["destination_country"], mode_label),  # shares cache with search_route_options
+    )
+    domains = discovered or _flatten_by_country(
+        leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
+    ) + FERRY_DOMAINS
+
+    query = f"{leg['origin']} to {leg['destination']} " + " ".join(modes)
+    if state.get("review_feedback"):
+        query += f" — traveler feedback: {state['review_feedback']}"
+
+    data = TavilySearch(max_results=3, include_domains=domains, include_raw_content="text").invoke({"query": query})
+    docs = [d for d in _tavily_results(data)
+            if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
+
+    if not docs:
+        return {"raw_options": []}
+
+    structured_llm = llm.with_structured_output(RouteOptions)
+    result = invoke_structured_with_retry(structured_llm, [
+        SystemMessage(content=route_extraction_instructions),
+        HumanMessage(content=json.dumps(docs)),
+    ], RouteOptions)
+
+    tagged = [{**opt.model_dump(), "source": "operator_site", "round": state.get("search_round", 0)}
+              for opt in result.options if opt.mode in modes]
+    return {"raw_options": tagged}
 
 def search_flight_leg(state: LegTransportState):
     leg = state["leg"]
@@ -347,14 +439,40 @@ def search_car_rental(state: LegTransportState):
             "generally for the city is valid. Only treat it as not found if results are for a "
             "clearly different city entirely."
         )),
-        HumanMessage(content=json.dumps(data.get("results", data))),
+        HumanMessage(content=json.dumps(_tavily_results(data))),
     ], TransportOption)
 
     result = opt.model_dump()
     result["booking_url"] = None if not _is_plausible_url(result.get("booking_url")) else result.get("booking_url")
     return {"raw_options": [{**result, "round": state.get("search_round", 0)}]}
 
-# ---------- Recommendation, review, finalize ----------
+# ---------- Reconciliation, recommendation, review, finalize ----------
+
+def reconcile_options(state: LegTransportState):
+    """Merge this round's raw_options into a single confidence-tagged list.
+    Writes to reconciled_options (single-writer) rather than back into raw_options
+    (Annotated + operator.add), so the merge doesn't duplicate entries on top of
+    themselves across supersteps."""
+    latest = max((o.get("round", 0) for o in state["raw_options"]), default=0)
+    current = [o for o in state["raw_options"] if o.get("round", 0) == latest]
+
+    rome2rio = [o for o in current if o.get("source") != "operator_site"]
+    operator_internal = [o for o in current if o.get("source") == "operator_site"]
+
+    def _key(o):
+        return (o["mode"], (o.get("provider") or "").lower()[:15])
+
+    operator_keys = {_key(o) for o in operator_internal}
+    rome2rio_keys = {_key(o) for o in rome2rio}
+
+    merged = []
+    for o in rome2rio:
+        merged.append({**o, "confidence": "corroborated" if _key(o) in operator_keys else "unverified"})
+    for o in operator_internal:
+        if _key(o) not in rome2rio_keys:
+            merged.append({**o, "confidence": "unverified"})
+
+    return {"reconciled_options": merged}
 
 recommendation_instructions = """You are recommending the best transportation option for one
 leg of a trip, given all the real options found. Consider genuine trade-offs a traveler would
@@ -367,8 +485,7 @@ care about — not just lowest price:
 Return every option's index in your ranked_option_indices, best to worst — don't drop any."""
 
 def recommend_leg_options(state: LegTransportState):
-    latest_round = max((o.get("round", 0) for o in state["raw_options"]), default=0)
-    current = [o for o in state["raw_options"] if o.get("round", 0) == latest_round]
+    current = state["reconciled_options"]
 
     if not current:
         return {"options": [], "recommendation_reasoning": None}
@@ -434,7 +551,9 @@ leg_builder = StateGraph(LegTransportState)
 
 leg_builder.add_node("search_flight", search_flight_leg)
 leg_builder.add_node("search_route_options", search_route_options)
+leg_builder.add_node("verify_route_options", verify_route_options)
 leg_builder.add_node("search_car_rental", search_car_rental)
+leg_builder.add_node("reconcile_options", reconcile_options)
 leg_builder.add_node("recommend_leg_options", recommend_leg_options)
 leg_builder.add_node("review_leg_transport", review_leg_transport)
 leg_builder.add_node("increment_round", increment_round)
@@ -442,12 +561,14 @@ leg_builder.add_node("finalize_leg", finalize_leg)
 
 leg_builder.add_conditional_edges(
     START, fan_out_modes,
-    ["search_flight", "search_route_options", "search_car_rental"],
+    ["search_flight", "search_route_options", "verify_route_options", "search_car_rental"],
 )
 
-for node in ["search_flight", "search_route_options", "search_car_rental"]:
-    leg_builder.add_edge(node, "recommend_leg_options")
+# Every search node feeds reconcile_options — this is the ONLY path forward from search.
+for node in ["search_flight", "search_route_options", "verify_route_options", "search_car_rental"]:
+    leg_builder.add_edge(node, "reconcile_options")
 
+leg_builder.add_edge("reconcile_options", "recommend_leg_options")
 leg_builder.add_edge("recommend_leg_options", "review_leg_transport")
 
 leg_builder.add_conditional_edges(
@@ -457,7 +578,7 @@ leg_builder.add_conditional_edges(
 
 leg_builder.add_conditional_edges(
     "increment_round", fan_out_modes,
-    ["search_flight", "search_route_options", "search_car_rental"],
+    ["search_flight", "search_route_options", "verify_route_options", "search_car_rental"],
 )
 
 leg_builder.add_edge("finalize_leg", END)
