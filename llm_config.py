@@ -13,4 +13,5 @@ def get_llm(tier: str = "premium") -> ChatOpenAI:
         model=_MODEL_TIERS[tier],
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
+        streaming=False,  # avoid OpenRouter partial-JSON accumulator bug on structured output
     )
