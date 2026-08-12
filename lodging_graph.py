@@ -17,19 +17,18 @@ from langgraph.graph import StateGraph
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field
 
+from llm_config import get_llm
+from main import duffel_city_country
 from trip_info_graph import (
     invoke_structured_with_retry, APPROVE_SIGNALS,
     MAGAZINE_DOMAINS, UNIQUE_EXPERIENCE_DOMAINS,
 )
 from leg_transportation_graph import (
-    discover_relevant_domains, _tavily_results, _place_tokens,
+    discover_relevant_domains, _tavily_results, _place_tokens, _clean_place_name,
 )
 
-llm = ChatOpenAI(
-    model="anthropic/claude-sonnet-5",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
+llm = get_llm("premium")  # recommend_stay_options stays premium
+extraction_llm = get_llm("cheap")  # default tier for all search/extraction nodes
 
 # ---------- Domain configuration ----------
 
@@ -39,13 +38,39 @@ GENERAL_OTA_DOMAINS = ["booking.com", "hotels.com", "expedia.com"]
 HOSTEL_DOMAINS = ["hostelworld.com", "hostelbookers.com"]
 CHAIN_POINTS_DOMAIN = ["maxmypoint.com"]  # confirmed live via Tavily with include_domains restriction
 
+GENERAL_OTA_DOMAINS_BY_COUNTRY = {
+    "default": GENERAL_OTA_DOMAINS,
+    "KR": ["yanolja.com", "yeogi.com", "booking.com"],
+    "JP": ["travel.rakuten.co.jp", "jalan.net", "booking.com"],
+    "CN": ["trip.com", "ctrip.com", "booking.com"],
+    "IN": ["makemytrip.com", "goibibo.com", "booking.com"],
+}
+
+
+def _general_ota_domains(leg: "StayLeg") -> list[str]:
+    """Live-discovers regionally relevant OTA domains for this leg's country, falling
+    back to a small structured map (then the flat Western default) when discovery comes
+    up thin — a Western-only OTA list misses local budget inventory the same way the old
+    hardcoded rail/bus lists did before discover_relevant_domains was added there."""
+    country = leg["country"]
+    discovered = discover_relevant_domains(
+        f"best hotel booking website OTA {country}",
+        cache_key=(country, "lodging_ota"),
+    )
+    domains = list(dict.fromkeys(discovered + GENERAL_OTA_DOMAINS))
+    if len(domains) < 3:
+        domains += GENERAL_OTA_DOMAINS_BY_COUNTRY.get(country, GENERAL_OTA_DOMAINS_BY_COUNTRY["default"])
+    return list(dict.fromkeys(domains))
+
+
 # Deep-linked search-results URLs — dates are baked into the query string so the page
 # itself (not a generic organic snippet) is forced to render date-specific rates.
 # Verify these param names still work in the Tavily Extract playground before relying
 # on them; OTA sites redesign their search URLs periodically and some pricing loads via
 # client-side JS that a static extract won't see.
+
 DIRECT_RATE_SOURCES = {
-    "booking_direct": "https://www.booking.com/searchresults.html?ss={city}&checkin={check_in}&checkout={check_out}&group_adults=2",
+    "booking_direct": "https://www.booking.com/searchresults.html?ss={city}&checkin={check_in}&checkout={check_out}&group_adults=2&selected_currency=USD",
     "expedia_direct": "https://www.expedia.com/Hotel-Search?destination={city}&startDate={check_in}&endDate={check_out}",
 }
 
@@ -65,6 +90,7 @@ CHAIN_PROGRAM_ALIASES = {
 
 _fx_cache: dict[str, Optional[float]] = {}
 
+
 def _get_usd_rate(currency: str) -> Optional[float]:
     """Cached per currency for the process lifetime — re-search rounds and multiple
     legs in the same currency shouldn't re-pay the FX lookup."""
@@ -75,7 +101,7 @@ def _get_usd_rate(currency: str) -> Optional[float]:
         return _fx_cache[currency]
     try:
         resp = requests.get("https://api.frankfurter.app/latest",
-                             params={"from": currency, "to": "USD"}, timeout=5)
+                            params={"from": currency, "to": "USD"}, timeout=5)
         resp.raise_for_status()
         rate = resp.json()["rates"].get("USD")
     except Exception:
@@ -83,24 +109,39 @@ def _get_usd_rate(currency: str) -> Optional[float]:
     _fx_cache[currency] = rate
     return rate
 
+
 def _to_usd(amount: Optional[float], currency: Optional[str]) -> Optional[float]:
     if amount is None or not currency:
         return None
     rate = _get_usd_rate(currency)
     return round(amount * rate, 2) if rate is not None else None
 
+
 def _nights(leg: "StayLeg") -> int:
     ci, co = date.fromisoformat(leg["check_in"]), date.fromisoformat(leg["check_out"])
     return max((co - ci).days, 1)
 
-def _derive_night_total(price_usd: Optional[float], price_type: str, nights: int) -> tuple[Optional[float], Optional[float]]:
-    """Deterministic — never let the LLM do this arithmetic, just have it classify
-    price_type and we compute both figures ourselves."""
+
+def _derive_night_total(price_usd, price_type, nights, party_size: int = 2):
     if price_usd is None or price_type == "unknown":
         return None, None
     if price_type == "per_night":
         return price_usd, round(price_usd * nights, 2)
-    return round(price_usd / nights, 2), price_usd  # price_type == "total"
+    if price_type == "per_person_per_night":
+        per_night = price_usd * party_size
+        return per_night, round(per_night * nights, 2)
+    return round(price_usd / nights, 2), price_usd  # "total"
+
+def _pick_representative(options: list[dict]) -> dict:
+    """Send() fan-out order isn't deterministic, so 'first seen' can pick an entry
+    whose booking_url got filtered to None even when a sibling source has a real one.
+    Prefer any entry with a populated booking_url, favoring booking_direct (date-specific
+    deep link) among those, before falling back to plain first-seen."""
+    with_url = [o for o in options if o.get("booking_url")]
+    if with_url:
+        with_url.sort(key=lambda o: o.get("source") != "booking_direct")
+        return with_url[0]
+    return options[0]
 
 def _apply_pricing(d: dict, nights: int) -> dict:
     """Shared by every search node so price_usd/price_per_night_usd/total_cost_usd/
@@ -118,6 +159,7 @@ def _apply_pricing(d: dict, nights: int) -> dict:
         )
     return d
 
+
 # ---------- Schemas ----------
 
 class StayOption(BaseModel):
@@ -129,10 +171,11 @@ class StayOption(BaseModel):
     price_currency: Optional[str] = Field(
         None, description="3-letter ISO 4217 code, e.g. USD, EUR, JPY — infer from symbol/context if not spelled out"
     )
-    price_type: Literal["per_night", "total", "unknown"] = Field(
-        description="Whether price_amount is a nightly rate or a total-stay price. Look for cues like "
-                    "'/night', 'per night', 'total', 'for N nights'. Use 'unknown' rather than guessing "
-                    "if the page doesn't make it clear."
+    # lodging_graph.py — StayOption
+    price_type: Literal["per_night", "total", "per_person_per_night", "unknown"] = Field(
+        description="Whether price_amount is a nightly rate, a total-stay price, or a "
+                    "per-person nightly rate (common on Korean/Japanese listings, e.g. "
+                    "'72,600 per person, per night'). Use 'unknown' rather than guessing."
     )
     rating: Optional[str] = None
     booking_url: Optional[str] = None
@@ -145,20 +188,24 @@ class StayOption(BaseModel):
                           "single-property hotel/hostel with no recognizable chain affiliation. "
                           "vacation_rental: apartments/homestays booked as a private residence.")
 
+
 class StayOptions(BaseModel):
     options: list[StayOption] = Field(
         description="Every distinct viable stay found on this page for THIS city and "
                     "requested stay type(s). Do not invent options not shown."
     )
 
+
 class PointsValue(BaseModel):
     percent_bookable_with_points: Optional[str] = None
     point_value_cents: Optional[str] = Field(None, description="Estimated cents-per-point value, if stated")
     note: Optional[str] = None
 
+
 class StayRecommendation(BaseModel):
     ranked_option_indices: list[int] = Field(description="Indices into the options list, best first")
     reasoning: str = Field(description="1-2 sentences on why the top choice fits this stop")
+
 
 class StayLeg(TypedDict):
     city: str
@@ -169,11 +216,12 @@ class StayLeg(TypedDict):
     stay_types_requested: list[str]
     loyalty_programmes: list[str]  # e.g. ["Marriott Bonvoy", "Hyatt"] — empty list skips points lookup
 
+
 class StayLegState(TypedDict):
     leg: StayLeg
     raw_options: Annotated[list[dict], operator.add]  # parallel search writes, never cleared
-    reconciled_options: list[dict]                     # this round's merged/confidence-tagged options, single-writer
-    options: list[dict]                                # recommended/ordered snapshot, single-writer
+    reconciled_options: list[dict]  # this round's merged/confidence-tagged options, single-writer
+    options: list[dict]  # recommended/ordered snapshot, single-writer
     recommendation_reasoning: Optional[str]
     search_round: int
     selected: Optional[dict]
@@ -181,11 +229,13 @@ class StayLegState(TypedDict):
     review_feedback: Optional[str]
     finalized_stays: Annotated[list[dict], operator.add]
 
+
 class LodgingPlanningState(TypedDict):
     dated_itinerary: list[dict]
     loyalty_programmes: list[str]
     stay_legs: list[StayLeg]
     finalized_stays: Annotated[list[dict], operator.add]
+
 
 # ---------- Leg derivation ----------
 
@@ -193,7 +243,7 @@ def derive_stay_legs(state: LodgingPlanningState):
     stops = state["dated_itinerary"]
     legs = [{
         "city": s["city"],
-        "country": s["country"],
+        "country": duffel_city_country(_clean_place_name(s["city"])) or s["country"],
         "check_in": s["depart_date"],
         "check_out": s["return_date"],
         "duration_days": s["duration_days"],
@@ -201,6 +251,7 @@ def derive_stay_legs(state: LodgingPlanningState):
         "loyalty_programmes": state.get("loyalty_programmes", []),
     } for s in stops if s["duration_days"] > 0]  # skip pure same-day transit stops
     return {"stay_legs": legs}
+
 
 def _apply_type_overrides(legs: list[dict], raw: str) -> list[dict]:
     # raw format: "0: hostel,homestay | 2: hotel"
@@ -214,6 +265,7 @@ def _apply_type_overrides(legs: list[dict], raw: str) -> list[dict]:
         for i, leg in enumerate(legs)
     ]
 
+
 def classify_stay_types(state: LodgingPlanningState):
     raw = interrupt({
         "type": "stay_type_review",
@@ -221,11 +273,14 @@ def classify_stay_types(state: LodgingPlanningState):
                    "or 'approve' for hotels everywhere.",
         "stay_legs": state["stay_legs"],
     })
-    legs = state["stay_legs"] if raw.strip().lower() in APPROVE_SIGNALS else _apply_type_overrides(state["stay_legs"], raw)
+    legs = state["stay_legs"] if raw.strip().lower() in APPROVE_SIGNALS else _apply_type_overrides(state["stay_legs"],
+                                                                                                   raw)
     return {"stay_legs": legs}
+
 
 def fan_out_stays(state: LodgingPlanningState):
     return [Send("plan_stay", {"leg": leg, "options": [], "raw_options": []}) for leg in state["stay_legs"]]
+
 
 def fan_out_stay_sources(state: StayLegState):
     sends = [
@@ -238,6 +293,7 @@ def fan_out_stay_sources(state: StayLegState):
         sends.append(Send("search_hotel_chains", state))
     return sends
 
+
 # ---------- Helpers ----------
 
 def _url_matches_city(url: str | None, city: str) -> bool:
@@ -246,12 +302,14 @@ def _url_matches_city(url: str | None, city: str) -> bool:
     url_lower = url.lower()
     return any(tok in url_lower for tok in _place_tokens(city))
 
+
 def _is_wrapped_redirect(url: str | None) -> bool:
     """Tavily's own click-tracking wrapper (e.g. '/goto?url=...') — not a real link
     to the property/booking page, so never store these as booking_url."""
     if not url:
         return False
     return url.startswith("/goto") or "goto?url=" in url
+
 
 def _parse_city_areas(city: str) -> tuple[str, list[str]]:
     """Splits 'Seoul (Gangnam/Itaewon)' into ('Seoul', ['Gangnam', 'Itaewon']). A combined
@@ -266,6 +324,7 @@ def _parse_city_areas(city: str) -> tuple[str, list[str]]:
     areas = [a.strip() for a in re.split(r"[/,]| and ", m.group(2)) if a.strip()]
     return base, areas
 
+
 def _is_generic_listing_page(url: str) -> bool:
     """City/district hub pages (e.g. booking.com/city/kr/seoul.html or
     .../district/kr/seoul/gangnam-gu.html) are not a specific property's booking page —
@@ -273,7 +332,9 @@ def _is_generic_listing_page(url: str) -> bool:
     url_lower = url.lower()
     return any(marker in url_lower for marker in ("/city/", "/district/", "/region/", "/country/"))
 
+
 NON_BOOKING_SUFFIXES = ("/photos", "/photo", "/gallery", "/reviews", "/review", "/map")
+
 
 def _strip_non_booking_subpath(url: str) -> str:
     """A property page found via extraction sometimes points at a photo gallery or
@@ -286,6 +347,7 @@ def _strip_non_booking_subpath(url: str) -> str:
             return base or url
     return url
 
+
 def _clean_url(url: str | None, city: str, allowed_domains: list[str]) -> Optional[str]:
     if not url or _is_wrapped_redirect(url) or _is_generic_listing_page(url):
         return None
@@ -296,7 +358,9 @@ def _clean_url(url: str | None, city: str, allowed_domains: list[str]) -> Option
         return None
     return _strip_non_booking_subpath(url)
 
+
 _NAME_STOPWORDS = {"the", "hotel", "hotels", "resort", "resorts", "spa"}
+
 
 def _normalize_name(name: str) -> str:
     """Strips punctuation and common filler words (the/hotel/resort/spa) so 'The Aloft
@@ -308,8 +372,10 @@ def _normalize_name(name: str) -> str:
     tokens = [t for t in cleaned.split() if t not in _NAME_STOPWORDS]
     return " ".join(tokens)
 
+
 def _key(o: dict) -> tuple:
     return (o["type"], _normalize_name(o.get("name") or ""))
+
 
 def _matches_loyalty_programme(chain_name: str, loyalty_programmes: list[str]) -> bool:
     chain_lower = chain_name.lower()
@@ -319,12 +385,16 @@ def _matches_loyalty_programme(chain_name: str, loyalty_programmes: list[str]) -
             return True
     return False
 
+
 def _format_date_query(check_in: str, check_out: str) -> str:
     ci, co = date.fromisoformat(check_in), date.fromisoformat(check_out)
     nights = (co - ci).days
     return f"{ci.strftime('%b %d')}\u2013{co.strftime('%b %d, %Y')} ({nights} nights) nightly rate"
 
+
 # ---------- Search nodes ----------
+
+# lodging_graph.py
 
 stay_extraction_instructions = """You are extracting accommodation options from a hotel/
 booking search results page for ONE specific city and specific stay type(s).
@@ -345,9 +415,14 @@ don't leave it blank.
 
 Whenever a price appears, populate price_estimate (raw text exactly as shown, e.g.
 '€142/night'), price_amount + price_currency (the numeric value and its ISO 4217 code, e.g.
-142.0 and "EUR"), AND price_type — whether that figure is a per-night rate or a total price
-for the whole stay. Use 'unknown' for price_type rather than guessing if it isn't clear;
-never leave price_amount populated with price_type left as a guess dressed up as certainty.
+142.0 and "EUR"), AND price_type — whether that figure is a per-night rate for the whole room,
+a total price for the whole stay, or a PER-PERSON per-night rate. Watch for phrasing like
+'per person, per night', 'per person/night', or 'pp/night' — these are common on Korean and
+Japanese listings and mean the shown figure covers ONE guest for ONE night, not the whole room.
+Use price_type='per_person_per_night' for these rather than defaulting to 'per_night', since
+treating a per-person figure as a full-room rate understates the real cost. Use 'unknown' for
+price_type rather than guessing if it isn't clear; never leave price_amount populated with
+price_type left as a guess dressed up as certainty.
 
 For booking_url, if the page offers multiple links for the same property, prefer one that
 leads to rooms, rates, or booking/availability — not a photo gallery, review page, or map
@@ -384,9 +459,11 @@ embedded booking widget, ad module, or unrelated "compare rates" element. When i
 leave price_amount, price_currency, price_type, and booking_url null; this source is for
 discovering distinctive properties, not for verified pricing."""
 
+
 def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
                       feedback: Optional[str], source: str, round_num: int,
-                      extra_instructions: str = "", split_by_area: bool = True) -> list[dict]:
+                      extra_instructions: str = "", split_by_area: bool = True,
+                      search_llm: Optional[ChatOpenAI] = None) -> list[dict]:
     base_city, areas = _parse_city_areas(leg["city"])
     # Chain-brand sources (Hyatt/Marriott/etc.) are a brand+city search, not neighborhood-scoped
     # the way Agoda/OTA listings are — splitting by area there just doubles calls for no new
@@ -395,13 +472,22 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
     nights = _nights(leg)
     tagged: list[dict] = []
 
+    # Default to the cheap tier — callers should pass search_llm explicitly, but this
+    # fallback matters: previously it fell back to the module-level premium `llm`,
+    # which silently routed search_agoda/search_hotel_chains/search_general_ota onto
+    # Sonnet 5 on every call since none of them passed search_llm. Confirmed via
+    # OpenRouter logs — Sonnet 5 calls were firing as often as DeepSeek ones, with
+    # input token counts matching search-extraction payloads, not the once-per-leg
+    # recommend_stay_options call.
+    resolved_llm = search_llm or extraction_llm
+
     for area in search_targets:
         location_label = f"{base_city} {area}" if area else base_city
         query = f"{location_label} {type_label} {_format_date_query(leg['check_in'], leg['check_out'])}"
         if feedback:
             query += f" — traveler feedback: {feedback}"
 
-        data = TavilySearch(max_results=5, include_domains=domains, include_raw_content="text").invoke({"query": query})
+        data = TavilySearch(max_results=3, include_domains=domains, include_raw_content="text").invoke({"query": query})
         docs = [d for d in _tavily_results(data) if _url_matches_city(d.get("url"), base_city)]
         for d in docs:
             if d.get("raw_content"):
@@ -417,7 +503,7 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
                 f"different, unrelated district, even if they're still technically in {base_city}."
             )
 
-        structured_llm = llm.with_structured_output(StayOptions)
+        structured_llm = resolved_llm.with_structured_output(StayOptions)
         result = invoke_structured_with_retry(structured_llm, [
             SystemMessage(content=stay_extraction_instructions + area_instructions),
             HumanMessage(content=json.dumps(docs)),
@@ -435,38 +521,47 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
 
     return tagged
 
+
 def search_agoda(state: StayLegState):
     leg = state["leg"]
     type_label = "/".join(leg["stay_types_requested"])
     domains = AGODA_DOMAIN + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
     options = _run_stay_search(leg, domains, type_label, state.get("review_feedback"),
-                               "agoda", state.get("search_round", 0))
+                               "agoda", state.get("search_round", 0),
+                               search_llm=extraction_llm)
     return {"raw_options": options}
+
 
 def search_hotel_chains(state: StayLegState):
     leg = state["leg"]
     options = _run_stay_search(leg, HOTEL_CHAIN_DOMAINS, "hotel loyalty programme",
                                state.get("review_feedback"), "chain", state.get("search_round", 0),
-                               split_by_area=False)
+                               split_by_area=False, search_llm=extraction_llm)
     return {"raw_options": options}
+
 
 def search_general_ota(state: StayLegState):
     """Independent corroboration source, separate from Agoda — same purpose as
     verify_route_options in the transport graph."""
     leg = state["leg"]
     type_label = "/".join(leg["stay_types_requested"])
-    domains = GENERAL_OTA_DOMAINS + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
+    domains = _general_ota_domains(leg) + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
     options = _run_stay_search(leg, domains, type_label, state.get("review_feedback"),
-                               "general_ota", state.get("search_round", 0))
+                               "general_ota", state.get("search_round", 0),
+                               search_llm=extraction_llm)
     return {"raw_options": options}
+
+_editorial_llm = get_llm("mid")  # module-level, avoid re-instantiating per call
 
 def search_unique_stays(state: StayLegState):
     leg = state["leg"]
     domains = MAGAZINE_DOMAINS + UNIQUE_EXPERIENCE_DOMAINS
     options = _run_stay_search(leg, domains, "unique boutique stay", state.get("review_feedback"),
                                "editorial", state.get("search_round", 0),
-                               extra_instructions=editorial_price_caveat)
+                               extra_instructions=editorial_price_caveat,
+                               search_llm=_editorial_llm)
     return {"raw_options": options}
+
 
 def search_rates_direct(state: StayLegState):
     """Deep-links directly into Booking.com / Expedia search results with the traveler's
@@ -504,7 +599,7 @@ def search_rates_direct(state: StayLegState):
             if not pages or not pages[0].get("raw_content"):
                 continue
 
-            structured_llm = llm.with_structured_output(StayOptions)
+            structured_llm = extraction_llm.with_structured_output(StayOptions)
             parsed = invoke_structured_with_retry(structured_llm, [
                 SystemMessage(content=rate_extraction_instructions + area_instructions),
                 HumanMessage(content=pages[0]["raw_content"][:8000]),
@@ -520,7 +615,10 @@ def search_rates_direct(state: StayLegState):
                                "date_specific": True, "search_query": url, "matched_area": area})
     return {"raw_options": tagged}
 
+
 # ---------- Reconciliation ----------
+
+# lodging_graph.py
 
 def reconcile_stay_options(state: StayLegState):
     """Merge this round's raw_options into a single confidence-tagged list.
@@ -545,13 +643,16 @@ def reconcile_stay_options(state: StayLegState):
         if o.get("date_specific"):
             date_specific_keys.add(k)
 
-    seen: set = set()
-    merged = []
+    # Group all raw options per listing (across sources) instead of keeping only the
+    # first one seen — fan-out order isn't deterministic, so first-seen can pick an
+    # entry with a nulled-out booking_url even when a sibling source has a good one.
+    grouped: dict[tuple, list[dict]] = {}
     for o in current:
-        k = _key(o)
-        if k in seen:
-            continue  # dedupe repeats of the same listing across sources; corroboration is captured below
-        seen.add(k)
+        grouped.setdefault(_key(o), []).append(o)
+
+    merged = []
+    for k, group in grouped.items():
+        o = _pick_representative(group)
         if k in date_specific_keys:
             confidence = "date_verified"
         elif len(source_counts[k]) >= 2:
@@ -563,6 +664,7 @@ def reconcile_stay_options(state: StayLegState):
             entry["price_by_source"] = price_by_key[k]  # surfaces disagreement between sources, now in USD too
         merged.append(entry)
     return {"reconciled_options": merged}
+
 
 # ---------- Points-value enrichment (MaxMyPoint) ----------
 
@@ -592,9 +694,9 @@ def enrich_points_value(state: StayLegState):
             continue
         for d in docs:
             if d.get("raw_content"):
-                d["raw_content"] = d["raw_content"][:4000]
+                d["raw_content"] = d["raw_content"][:3000]
 
-        structured_llm = llm.with_structured_output(PointsValue)
+        structured_llm = extraction_llm.with_structured_output(PointsValue)
         pv = invoke_structured_with_retry(structured_llm, [
             SystemMessage(content=points_extraction_instructions),
             HumanMessage(content=json.dumps(docs)),
@@ -610,6 +712,7 @@ def enrich_points_value(state: StayLegState):
         for o in reconciled
     ]
     return {"reconciled_options": updated}
+
 
 # ---------- Recommendation, review, finalize ----------
 
@@ -638,6 +741,7 @@ a trip, given all real options found. Consider genuine trade-offs a traveler wou
   option) — but this is a bonus factor, not a reason to override a clearly better fit
 Return every option's index in ranked_option_indices, best to worst — don't drop any."""
 
+
 def recommend_stay_options(state: StayLegState):
     current = state["reconciled_options"]
     if not current:
@@ -647,9 +751,9 @@ def recommend_stay_options(state: StayLegState):
     rec = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=recommendation_instructions),
         HumanMessage(content=f"Stop: {state['leg']['city']} ({state['leg']['check_in']} to "
-                              f"{state['leg']['check_out']}, {_nights(state['leg'])} nights)\n"
-                              f"Requested type(s): {state['leg']['stay_types_requested']}\n"
-                              f"Options: {json.dumps(current)}"),
+                             f"{state['leg']['check_out']}, {_nights(state['leg'])} nights)\n"
+                             f"Requested type(s): {state['leg']['stay_types_requested']}\n"
+                             f"Options: {json.dumps(current)}"),
     ], StayRecommendation)
 
     ranked = [current[i] for i in rec.ranked_option_indices if 0 <= i < len(current)]
@@ -659,6 +763,7 @@ def recommend_stay_options(state: StayLegState):
     ranked.extend(missing)
 
     return {"options": ranked, "recommendation_reasoning": rec.reasoning}
+
 
 def review_stay(state: StayLegState):
     if not state["options"]:
@@ -686,18 +791,23 @@ def review_stay(state: StayLegState):
         return {"selected": state["options"][int(raw)], "review_decision": "finalize"}
     return {"review_feedback": raw, "review_decision": "revise"}
 
+
 def route_stay_review(state: StayLegState):
     return "finalize_stay" if state.get("review_decision") == "finalize" else "increment_round"
+
 
 def increment_round(state: StayLegState):
     return {"search_round": state.get("search_round", 0) + 1}
 
+
 def finalize_stay(state: StayLegState):
     return {"finalized_stays": [{**state["leg"], "selected": state["selected"]}]}
+
 
 def aggregate_stays(state: LodgingPlanningState):
     # no-op passthrough — Send()'d branches already merged finalized_stays via operator.add
     return {}
+
 
 # ---------- Graph wiring ----------
 
@@ -788,7 +898,8 @@ if __name__ == "__main__":
             if data.get("recommendation_reasoning"):
                 print(f"  Recommendation: {data['recommendation_reasoning']}")
             for i, opt in enumerate(data["options"]):
-                pn = f"${opt['price_per_night_usd']:,.2f}/night" if opt.get("price_per_night_usd") is not None else "night rate n/a"
+                pn = f"${opt['price_per_night_usd']:,.2f}/night" if opt.get(
+                    "price_per_night_usd") is not None else "night rate n/a"
                 tot = f"${opt['total_cost_usd']:,.2f} total" if opt.get("total_cost_usd") is not None else "total n/a"
                 if opt.get("price_note"):
                     tot = opt["price_note"]  # unlabeled-but-real price — show the caveat instead of "n/a"
@@ -811,7 +922,8 @@ if __name__ == "__main__":
     for leg in result["finalized_stays"]:
         sel = leg["selected"]
         if sel:
-            pn = f"${sel['price_per_night_usd']:,.2f}/night" if sel.get("price_per_night_usd") is not None else "night rate n/a"
+            pn = f"${sel['price_per_night_usd']:,.2f}/night" if sel.get(
+                "price_per_night_usd") is not None else "night rate n/a"
             tot = f"${sel['total_cost_usd']:,.2f} total" if sel.get("total_cost_usd") is not None else "total n/a"
             print(f"  {leg['city']}: {sel['type']} ({sel['brand_classification']}) — {sel.get('name')} "
                   f"({pn} / {tot}, {sel['confidence']})")

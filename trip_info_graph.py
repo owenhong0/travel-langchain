@@ -26,9 +26,12 @@ llm = ChatOpenAI(
     model="anthropic/claude-sonnet-5",
     base_url="https://openrouter.ai/api/v1",
     api_key=os.getenv("OPENROUTER_API_KEY"),
+    streaming=False,
 )
 retryable_llm = llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
 
+
+# trip_info_graph.py
 def invoke_structured_with_retry(structured_llm, messages, schema, attempts=3):
     last_error = None
     for i in range(attempts):
@@ -44,10 +47,10 @@ def invoke_structured_with_retry(structured_llm, messages, schema, attempts=3):
                 try:
                     return schema.model_validate_json(bad_field["input"])
                 except Exception:
-                    pass  # fall through to retry
+                    pass
             last_error = e
             time.sleep(2 ** i)
-        except APIStatusError as e:
+        except (APIStatusError, ValueError) as e:   # ValueError catches malformed/empty streamed JSON
             last_error = e
             time.sleep(2 ** i)
     raise last_error
@@ -65,30 +68,36 @@ class Analyst(BaseModel):
     description: str = Field(
         description="Description of the analyst focus, concerns, and motives.",
     )
+
     @property
     def persona(self) -> str:
         return f"Name: {self.name}\nRole: {self.role}\nAffiliation: {self.affiliation}\nDescription: {self.description}\n"
 
+
 class GraphState(TypedDict):
     trip_preferences: str
 
+
 class GenerateAnalystsState(TypedDict):
-    topic: str # Research topic
-    max_analysts: int # Number of analysts
-    human_analyst_feedback: str # Human feedback
-    analysts: List[Analyst] # Analyst asking questions
+    topic: str  # Research topic
+    max_analysts: int  # Number of analysts
+    human_analyst_feedback: str  # Human feedback
+    analysts: List[Analyst]  # Analyst asking questions
+
 
 class InterviewState(MessagesState):
-    max_num_turns: int # Number turns of conversation
-    context: Annotated[list, operator.add] # Source docs
-    analyst: Analyst # Analyst asking questions
-    interview: str # Interview transcript
-    sections: list # Final key we duplicate in outer state for Send() API
+    max_num_turns: int  # Number turns of conversation
+    context: Annotated[list, operator.add]  # Source docs
+    analyst: Analyst  # Analyst asking questions
+    interview: str  # Interview transcript
+    sections: list  # Final key we duplicate in outer state for Send() API
+
 
 class OrderedLeg(BaseModel):
     origin_city: str
     destination_city: str
     depart_date: str
+
 
 class DestinationCandidate(BaseModel):
     city: str
@@ -105,11 +114,14 @@ class DestinationCandidate(BaseModel):
                     "Jeju, Hawaii, Santorini. False for anywhere reachable by ground transport."
     )
 
+
 class DestinationOptions(BaseModel):
     candidates: list[DestinationCandidate]
 
+
 class TravelAnalyst(BaseModel):
-    focus_area: str = Field(description="What this analyst prioritizes when evaluating destinations, e.g. 'Adventure & Bucket List', 'Culture & Food', 'Budget & Value'")
+    focus_area: str = Field(
+        description="What this analyst prioritizes when evaluating destinations, e.g. 'Adventure & Bucket List', 'Culture & Food', 'Budget & Value'")
     persona_name: str
     description: str = Field(description="What this analyst cares about and pushes back on")
 
@@ -117,11 +129,14 @@ class TravelAnalyst(BaseModel):
     def persona(self) -> str:
         return f"Focus: {self.focus_area}\nName: {self.persona_name}\nDescription: {self.description}\n"
 
+
 class TravelAnalysts(BaseModel):
     analysts: List[TravelAnalyst]
 
+
 def keep_first(a: str, b: str) -> str:
     return a  # branches write the same unchanged value, so either is fine
+
 
 class DestinationInterviewState(MessagesState):
     max_num_turns: int
@@ -152,6 +167,7 @@ class DestinationResearchState(TypedDict):
     date_decision: str
     date_feedback: Optional[str]
 
+
 class DatedStop(BaseModel):
     city: str
     country: str
@@ -162,11 +178,14 @@ class DatedStop(BaseModel):
         description="Carried over — whether this stop is only reachable by flight/ferry"
     )
 
+
 class DatedItinerary(BaseModel):
     stops: list[DatedStop]
 
+
 class SearchQuery(BaseModel):
     search_query: str = Field(None, description="Search query for retrieval.")
+
 
 search_instructions = SystemMessage(content=f"""You will be given a conversation between an analyst and an expert. 
 
@@ -211,7 +230,6 @@ actually in the traveler's preferences rather than using generic categories that
 
 
 def create_analysts(state: DestinationResearchState):
-
     structured_llm = llm.with_structured_output(TravelAnalysts)
     system_message = analyst_instructions.format(
         trip_preferences=state["trip_preferences"],
@@ -228,21 +246,22 @@ def create_analysts(state: DestinationResearchState):
 GOV_TRAVEL_DOMAINS = [
     "travel.state.gov", "visitusa.com",
     # Europe
-    "germany.travel",       # German National Tourist Board
-    "france.fr",            # Atout France
-    "italia.it",            # Italian National Tourist Board (ENIT)
-    "spain.info",           # Spain Tourism Office
-    "visitbritain.com",     # VisitBritain
+    "germany.travel",  # German National Tourist Board
+    "france.fr",  # Atout France
+    "italia.it",  # Italian National Tourist Board (ENIT)
+    "spain.info",  # Spain Tourism Office
+    "visitbritain.com",  # VisitBritain
     # Asia
-    "japan.travel",         # Japan National Tourism Organization
-    "visitkorea.or.kr",     # Korea Tourism Organization
-] # add relevant tourism-board domains as you find them for likely destinations
+    "japan.travel",  # Japan National Tourism Organization
+    "visitkorea.or.kr",  # Korea Tourism Organization
+]  # add relevant tourism-board domains as you find them for likely destinations
 MAGAZINE_DOMAINS = ["travelandleisure.com", "cntraveler.com", "lonelyplanet.com", "afar.com", "nationalgeographic.com"]
 UNIQUE_EXPERIENCE_DOMAINS = [
     "atlasobscura.com", "roadsideamerica.com",
     "mrandmrssmith.com",  # boutique/unique hotel guide
-    "designhotels.com",   # design-focused unique hotel guide
+    "designhotels.com",  # design-focused unique hotel guide
 ]
+
 
 def _tavily_results(data) -> dict:
     """TavilySearch.invoke() can return a plain string (error/status message)
@@ -267,6 +286,7 @@ def search_gov_travel(state: DestinationInterviewState):
     )
     return {"context": [formatted]}
 
+
 def search_travel_magazines(state: DestinationInterviewState):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + state["messages"] + [
@@ -282,6 +302,7 @@ def search_travel_magazines(state: DestinationInterviewState):
     )
     return {"context": [formatted]}
 
+
 def search_unique_experiences(state: DestinationInterviewState):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + state["messages"] + [
@@ -296,6 +317,7 @@ def search_unique_experiences(state: DestinationInterviewState):
         f'<Document href="{d["url"]}" source_type="unique_experience"/>\n{d["content"]}\n</Document>' for d in docs
     )
     return {"context": [formatted]}
+
 
 answer_instructions = """You are a well-traveled expert being interviewed by a travel analyst.
 
@@ -316,6 +338,7 @@ Guidelines:
 4. Do not introduce destinations or facts not present in the context.
 5. List sources at the bottom: [1] source_type — URL"""
 
+
 def as_incoming(messages: list) -> list:
     """Convert AIMessage entries into HumanMessage so the list ends on a user turn,
     regardless of which persona 'said' it in the interview simulation."""
@@ -326,6 +349,7 @@ def as_incoming(messages: list) -> list:
         else:
             converted.append(m)
     return converted
+
 
 def generate_question(state: DestinationInterviewState):
     analyst = state["analyst"]
@@ -338,6 +362,7 @@ def generate_question(state: DestinationInterviewState):
     question = retryable_llm.invoke([SystemMessage(content=system_message)] + as_incoming(state["messages"]))
     return {"messages": [question]}
 
+
 def generate_answer(state: DestinationInterviewState):
     analyst = state["analyst"]
     messages = state["messages"]
@@ -347,7 +372,9 @@ def generate_answer(state: DestinationInterviewState):
     answer.name = "expert"
     return {"messages": [answer]}
 
+
 APPROVE_SIGNALS = {"approve", "y", "yes", "all", ""}
+
 
 def human_feedback(state: DestinationResearchState):
     h_feedback = interrupt({
@@ -357,6 +384,7 @@ def human_feedback(state: DestinationResearchState):
         "analysts": [an.persona for an in state["analysts"]],
     })
     return {"human_analyst_feedback": h_feedback}
+
 
 question_instructions = """You are {persona_name}, a travel analyst focused on: {focus_area}
 
@@ -411,6 +439,7 @@ def route_messages(state: InterviewState,
         return 'save_interview'
     return "ask_question"
 
+
 section_writer_instructions = """Write a short section summarizing destination recommendations
 from the perspective of: {focus}
 
@@ -434,6 +463,7 @@ otherwise cut off from ground transport to the rest of the region/country (e.g. 
 Santorini, Zanzibar) — false if it's reachable by train/bus/car. Use general knowledge of the
 destination's geography plus any cues in the source material (mentions of ferries, domestic
 flights, or "island" language)."""
+
 
 def extract_candidates(state: DestinationResearchState):
     sections = state["sections"]
@@ -483,6 +513,7 @@ interview_builder.add_conditional_edges("answer_question", route_messages, ["ask
 interview_builder.add_edge("save_interview", "write_section")
 interview_builder.add_edge("write_section", END)
 
+
 def initiate_all_interviews(state: DestinationResearchState):
     # Check if human feedback
     human_analyst_feedback = state.get('human_analyst_feedback', 'approve')
@@ -501,6 +532,7 @@ def initiate_all_interviews(state: DestinationResearchState):
             for analyst in state["analysts"]
         ]
 
+
 def _match_candidates(token: str, candidates: list) -> list[int]:
     """Match one comma-split token against candidate indices or city/country names."""
     token = token.strip()
@@ -513,6 +545,7 @@ def _match_candidates(token: str, candidates: list) -> list[int]:
         i for i, c in enumerate(candidates)
         if token.lower() in c["city"].lower() or token.lower() in c["country"].lower()
     ]
+
 
 def parse_review_response(raw: str, candidates: list) -> dict:
     """Free-text -> finalize/revise decision, mirroring APPROVE_SIGNALS' style."""
@@ -551,8 +584,8 @@ def review_destinations(state: DestinationResearchState):
         return {"finalized_destinations": response["chosen"], "review_decision": "finalize"}
     elif response["type"] == "revise":
         updated_preferences = (
-            state["trip_preferences"]
-            + f"\n\nAdditional feedback after reviewing initial suggestions: {response['feedback']}"
+                state["trip_preferences"]
+                + f"\n\nAdditional feedback after reviewing initial suggestions: {response['feedback']}"
         )
         return {
             "trip_preferences": updated_preferences,
@@ -561,6 +594,7 @@ def review_destinations(state: DestinationResearchState):
         }
     else:
         raise ValueError(f"Unknown response type: {response['type']}")
+
 
 ordering_instructions = """Given these finalized destinations and the traveler's preferences,
 propose the most sensible visiting order — minimize backtracking, respect any stated season/date
@@ -587,6 +621,7 @@ and ending at the same city, or at minimum ending somewhere with direct internat
 departures, over an ordering that's geographically tidy but strands the traveler far from an
 exit point."""
 
+
 class OrderedStop(BaseModel):
     city: str
     country: str
@@ -599,6 +634,7 @@ class OrderedStop(BaseModel):
         description="Carried over from the destination candidate — whether reaching this "
                     "stop from the previous one requires flight/ferry rather than ground transport"
     )
+
 
 class OrderedItinerary(BaseModel):
     ordered_destinations: list[OrderedStop]
@@ -615,6 +651,7 @@ class OrderedItinerary(BaseModel):
             except (json.JSONDecodeError, TypeError):
                 pass
         return data
+
 
 def order_destinations(state: DestinationResearchState):
     structured_llm = llm.with_structured_output(OrderedItinerary)
@@ -652,8 +689,10 @@ def order_destinations(state: DestinationResearchState):
         )
     return {"ordered_destinations": stops}
 
+
 def route_after_destination_review(state: DestinationResearchState):
     return "order_destinations" if state.get("review_decision") == "finalize" else "create_analysts"
+
 
 def review_order(state: DestinationResearchState):
     stops = state["ordered_destinations"]
@@ -674,8 +713,10 @@ def review_order(state: DestinationResearchState):
     else:
         return {"order_feedback": response["feedback"], "order_decision": "revise"}
 
+
 def route_after_order_review(state: DestinationResearchState):
     return "request_start_date" if state.get("order_decision") == "finalize" else "order_destinations"
+
 
 def request_start_date(state: DestinationResearchState):
     while True:
@@ -691,6 +732,7 @@ def request_start_date(state: DestinationResearchState):
         if start and end:
             return {"trip_start_date": start, "trip_end_date": end}
         # loop repeats, interrupt fires again with the same message
+
 
 dating_instructions = """Given this ordered itinerary, a trip start date, and a hard end date
 (the traveler must be out of the country by this date), assign concrete depart/return dates to
@@ -708,6 +750,7 @@ Carry forward each stop's requires_flight_or_ferry value unchanged from the inpu
 recompute or guess it, just preserve what was given.
 """
 
+
 def compute_dates(state: DestinationResearchState):
     structured_llm = llm.with_structured_output(DatedItinerary)
     feedback = state.get("date_feedback")
@@ -718,7 +761,7 @@ def compute_dates(state: DestinationResearchState):
     result = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=dating_instructions),
         HumanMessage(content=f"Trip start date: {state['trip_start_date']}{end_date_block}\n"
-                              f"Itinerary: {state['ordered_destinations']}{feedback_block}"),
+                             f"Itinerary: {state['ordered_destinations']}{feedback_block}"),
     ], DatedItinerary)
 
     stops = [s.model_dump() for s in result.stops]
@@ -734,6 +777,7 @@ def compute_dates(state: DestinationResearchState):
 
     return {"dated_itinerary": stops}
 
+
 def review_dates(state: DestinationResearchState):
     raw = interrupt({
         "type": "date_review",
@@ -746,8 +790,10 @@ def review_dates(state: DestinationResearchState):
     feedback = text if text is not None else raw.get("feedback", "")
     return {"date_feedback": feedback, "date_decision": "revise"}
 
+
 def route_after_date_review(state: DestinationResearchState):
     return "END" if state.get("date_decision") == "finalize" else "compute_dates"
+
 
 def _match_ordered_stops(token: str, stops: list) -> list[int]:
     token = token.strip()
@@ -757,6 +803,7 @@ def _match_ordered_stops(token: str, stops: list) -> list[int]:
         idx = int(token)
         return [idx] if 0 <= idx < len(stops) else []
     return [i for i, s in enumerate(stops) if token.lower() in s["city"].lower()]
+
 
 def parse_order_response(raw: str, stops: list) -> dict:
     text = (raw or "").strip()
@@ -775,7 +822,6 @@ def parse_order_response(raw: str, stops: list) -> dict:
         return {"type": "drop", "drop_indices": dropped}
 
     return {"type": "revise", "feedback": text}
-
 
 
 builder = StateGraph(DestinationResearchState)
