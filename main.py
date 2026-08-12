@@ -1,5 +1,8 @@
 import operator
 import os
+import re
+import threading
+import time
 from datetime import date
 from enum import Enum
 from multiprocessing import context
@@ -33,6 +36,9 @@ router_llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
+
+DUFFEL_VERSION = "v2"  # check Duffel's docs/changelog for the current value
+BASE_URL = "https://api.duffel.com"
 
 class loyalty_programs(Enum):
     "BA"
@@ -69,13 +75,46 @@ class FlightQuery(BaseModel):
     fare_type: Literal["economy", "premium_economy", "business", "first"]
     passengers: list[Passenger]
 
+# --- module-level cache state (place near the top, after duffel_api_key/client setup) ---
+_airport_cache: list[dict] = []
+_cache_refreshed_at: float = 0
+_cache_lock = threading.Lock()
+CACHE_TTL_SECONDS = 24 * 60 * 60  # airports/cities rarely change; daily refresh is plenty
+
+def _refresh_airport_cache():
+    """Paginated crawl of Duffel's full airport catalog. Only reassigns _airport_cache
+    once the whole crawl succeeds — a mid-crawl failure leaves the old (stale but valid)
+    cache in place rather than replacing it with a partial one."""
+    global _airport_cache, _cache_refreshed_at
+    headers = {
+        "Authorization": f"Bearer {duffel_api_key}",
+        "Duffel-Version": DUFFEL_VERSION,
+        "Accept": "application/json",
+    }
+    airports, cursor = [], None
+    while True:
+        params = {"limit": 200, **({"after": cursor} if cursor else {})}
+        resp = requests.get(f"{DUFFEL_BASE_URL}/air/airports", params=params, headers=headers)
+        resp.raise_for_status()
+        payload = resp.json()
+        airports.extend(payload["data"])
+        cursor = payload.get("meta", {}).get("after")
+        if not cursor:
+            break
+    _airport_cache = airports
+    _cache_refreshed_at = time.time()
+
+def _prewarm_airport_cache():
+    """Kicks off the crawl in a background thread at import time so the first real
+    lookup during a request doesn't pay the full cold-start cost. Racing with the
+    lock in duffel_places_lookup is fine — the lock's re-check handles it."""
+    threading.Thread(target=_refresh_airport_cache, daemon=True).start()
+
+_prewarm_airport_cache()
 
 
 search_instructions = SystemMessage(content="""You will be given a conversation.
 Convert the user's request into a well-structured web search query for flight prices.""")
-
-DUFFEL_VERSION = "v2"  # check Duffel's docs/changelog for the current value
-BASE_URL = "https://api.duffel.com"
 
 def ensure_future_date(date_str: str) -> str:
     d = date.fromisoformat(date_str)
@@ -101,25 +140,76 @@ def user_input(state: GraphState):
         flight_query.returning_date = ensure_future_date(flight_query.returning_date)
     return {"flight_query": flight_query.model_dump(), "context": []}
 
+def _match_airports(city_name: str) -> list[dict]:
+    """Shared matching logic for duffel_places_lookup and duffel_city_coords.
+    Tiered from strictest to loosest. The final tier checks BOTH directions —
+    query-in-field and field-in-query — because traveler-facing city names
+    ("New York City") don't always match Duffel's canonical city_name
+    ("New York"); a one-directional check misses the shorter-field case."""
+    q = city_name.strip().lower()
+    if not q:
+        return []
+
+    def exact_code(a):
+        return q == (a.get("iata_code") or "").lower() or q == (a.get("iata_city_code") or "").lower()
+
+    def exact_name(a):
+        return q == (a.get("city_name") or "").lower()
+
+    word_re = re.compile(rf"\b{re.escape(q)}\b")
+    def word_match(a):
+        return bool(word_re.search((a.get("name") or "").lower())) or \
+               bool(word_re.search((a.get("city_name") or "").lower()))
+
+    def loose_match(a):
+        name, city = (a.get("name") or "").lower(), (a.get("city_name") or "").lower()
+        return (name and (q in name or name in q)) or (city and (q in city or city in q))
+
+    for tier in (exact_code, exact_name, word_match):
+        matches = [a for a in _airport_cache if tier(a)]
+        if matches:
+            return matches
+
+    return [a for a in _airport_cache if loose_match(a)] if len(q) >= 3 else []
+
 # main.py
 def duffel_places_lookup(city_name: str) -> list[str]:
-    """Deterministic lookup — no LLM. Returns one code (metro) or several (individual airports)."""
-    headers = {
-        "Authorization": f"Bearer {duffel_api_key}",
-        "Duffel-Version": DUFFEL_VERSION,
-        "Accept": "application/json",
-    }
-    resp = requests.get(f"{DUFFEL_BASE_URL}/places/suggestions",
-                         params={"query": city_name}, headers=headers)
-    resp.raise_for_status()
-    places = resp.json()["data"]
+    if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+        with _cache_lock:
+            if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+                _refresh_airport_cache()
 
-    for place in places:
-        if place.get("type") == "city" and place.get("iata_code"):
-            return [place["iata_code"]]
+    matches = _match_airports(city_name)
+    city_codes = {a["iata_city_code"] for a in matches if a.get("iata_city_code")}
+    if city_codes:
+        return list(city_codes)
+    return [a["iata_code"] for a in matches if a.get("iata_code")]
 
-    airport_codes = [p["iata_code"] for p in places if p.get("type") == "airport"]
-    return airport_codes  # no more silent passthrough of the raw city_name string
+def duffel_city_coords(city_name: str) -> Optional[tuple[float, float]]:
+    if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+        with _cache_lock:
+            if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+                _refresh_airport_cache()
+
+    for a in _match_airports(city_name):
+        lat, lon = a.get("latitude"), a.get("longitude")
+        if lat is not None and lon is not None:
+            return (float(lat), float(lon))
+    return None
+
+def duffel_city_country(city_name: str) -> Optional[str]:
+    """Best-effort ISO country code for a city, via the shared airport cache —
+    used to populate origin_country/destination_country on the new home/return
+    bookend legs so they work with the existing cross-country mode check."""
+    if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+        with _cache_lock:
+            if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
+                _refresh_airport_cache()
+    for a in _match_airports(city_name):
+        code = a.get("iata_country_code")
+        if code:
+            return code
+    return None
 
 def resolve_iata_codes(state: GraphState):
     fq = FlightQuery.model_validate(state["flight_query"])

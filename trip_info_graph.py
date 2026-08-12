@@ -243,6 +243,15 @@ UNIQUE_EXPERIENCE_DOMAINS = [
     "mrandmrssmith.com",  # boutique/unique hotel guide
     "designhotels.com",   # design-focused unique hotel guide
 ]
+
+def _tavily_results(data) -> dict:
+    """TavilySearch.invoke() can return a plain string (error/status message)
+    instead of the expected dict — normalize defensively."""
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
 def search_gov_travel(state: DestinationInterviewState):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + as_incoming(state["messages"]) + [
@@ -250,9 +259,9 @@ def search_gov_travel(state: DestinationInterviewState):
     ]
     search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
     tavily_search = TavilySearch(max_results=3, include_domains=GOV_TRAVEL_DOMAINS)
-    data = tavily_search.invoke({"query": search_query.search_query, "include_images": True})
+    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
     image_urls = data.get("images", [])
-    docs = data.get("results", data)
+    docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
         f'<Document href="{d["url"]}" source_type="government"/>\n{d["content"]}\n</Document>' for d in docs
     )
@@ -265,9 +274,9 @@ def search_travel_magazines(state: DestinationInterviewState):
     ]
     search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
     tavily_search = TavilySearch(max_results=3, include_domains=MAGAZINE_DOMAINS)
-    data = tavily_search.invoke({"query": search_query.search_query, "include_images": True})
+    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
     image_urls = data.get("images", [])
-    docs = data.get("results", data)
+    docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
         f'<Document href="{d["url"]}" source_type="magazine"/>\n{d["content"]}\n</Document>' for d in docs
     )
@@ -280,9 +289,9 @@ def search_unique_experiences(state: DestinationInterviewState):
     ]
     search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
     tavily_search = TavilySearch(max_results=3, include_domains=UNIQUE_EXPERIENCE_DOMAINS)
-    data = tavily_search.invoke({"query": search_query.search_query, "include_images": True})
+    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
     image_urls = data.get("images", [])
-    docs = data.get("results", data)
+    docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
         f'<Document href="{d["url"]}" source_type="unique_experience"/>\n{d["content"]}\n</Document>' for d in docs
     )

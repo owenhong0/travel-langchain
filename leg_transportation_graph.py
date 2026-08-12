@@ -1,5 +1,6 @@
 # leg_transportation_graph.py
 import json
+import math
 import operator
 import os
 import re
@@ -15,14 +16,12 @@ from langgraph.graph import StateGraph
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field
 
+from llm_config import get_llm
 from trip_info_graph import invoke_structured_with_retry, APPROVE_SIGNALS
-from main import fetch_flight_offers, duffel_places_lookup
+from main import fetch_flight_offers, duffel_places_lookup, duffel_city_coords, duffel_city_country
 
-llm = ChatOpenAI(
-    model="anthropic/claude-sonnet-5",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
+llm = get_llm("premium")          # recommend_leg_options stays on this
+extraction_llm = get_llm("cheap")  # search_route_options / verify_route_options / search_car_rental use this
 
 # ---------- Schemas ----------
 
@@ -58,6 +57,8 @@ class Leg(TypedDict):
     depart_date: str
     requires_flight_or_ferry: bool
     modes_requested: list[str]
+    leg_type: Literal["arrival", "internal", "departure"]  # NEW — for review clarity, not routing
+    distance_miles: Optional[float]   # NEW — computed once, reused for ranking
 
 class LegTransportState(TypedDict):
     leg: Leg
@@ -73,25 +74,54 @@ class LegTransportState(TypedDict):
 
 class TransportPlanningState(TypedDict):
     dated_itinerary: list[dict]
+    home_city: str
+    home_country: str
+    return_city: str
+    return_country: str
     legs: list[Leg]
     finalized_legs: Annotated[list[dict], operator.add]
+
 
 # ---------- Leg derivation & mode classification ----------
 
 def derive_legs(state: TransportPlanningState):
     stops = state["dated_itinerary"]
-    legs = [{
+    internal = [{
         "origin": stops[i]["city"],
         "destination": stops[i + 1]["city"],
-        "origin_country": stops[i]["country"],
-        "destination_country": stops[i + 1]["country"],
+        "origin_country": _country_code(stops[i]["city"], stops[i]["country"]),
+        "destination_country": _country_code(stops[i + 1]["city"], stops[i + 1]["country"]),
         "depart_date": stops[i]["return_date"],
-        # a leg needs flight/ferry if EITHER end of it is flagged — reaching an island
-        # matters regardless of which direction you're traveling
         "requires_flight_or_ferry": stops[i].get("requires_flight_or_ferry", False)
                                      or stops[i + 1].get("requires_flight_or_ferry", False),
+        "leg_type": "internal",
     } for i in range(len(stops) - 1)]
-    return {"legs": legs}
+
+    home_country = state["home_country"]    # already ISO, from request_home_context
+    return_country = state["return_country"]
+    stop0_country = _country_code(stops[0]["city"], stops[0]["country"])
+    stopN_country = _country_code(stops[-1]["city"], stops[-1]["country"])
+
+    arrival_leg = {
+        "origin": state["home_city"],
+        "destination": stops[0]["city"],
+        "origin_country": home_country,
+        "destination_country": stop0_country,
+        "depart_date": stops[0]["depart_date"],
+        "requires_flight_or_ferry": bool(home_country) and bool(stop0_country) and home_country != stop0_country,
+        "leg_type": "arrival",
+    }
+    departure_leg = {
+        "origin": stops[-1]["city"],
+        "destination": state["return_city"],
+        "origin_country": stopN_country,
+        "destination_country": return_country,
+        "depart_date": stops[-1]["return_date"],
+        "requires_flight_or_ferry": bool(stopN_country) and bool(return_country) and stopN_country != return_country,
+        "leg_type": "departure",
+    }
+
+    return {"legs": [arrival_leg, *internal, departure_leg]}
 
 # Known island/archipelago destinations where ground transport (train/bus/car) to the
 # mainland isn't possible — flight or ferry only, regardless of same-country status.
@@ -107,12 +137,75 @@ def _is_island(place_name: str) -> bool:
     lowered = place_name.lower()
     return any(island in lowered for island in ISLAND_DESTINATIONS)
 
-def _suggest_modes(leg: dict) -> list[str]:
+# Beyond this, ground transport stops being a realistic default in the US and
+# most large countries — driving/rail becomes a full-day-plus commitment.
+# Below the lower bound, ground modes alone are fine. Between the two, offer
+# flight alongside ground options rather than picking one for the traveler.
+GROUND_ONLY_MAX_MILES = 150
+FLIGHT_ONLY_MIN_MILES = 500
+
+def _haversine_miles(coord1: tuple[float, float], coord2: tuple[float, float]) -> float:
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+    r = 3958.8  # earth radius in miles
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+def _leg_distance_miles(leg: dict) -> Optional[float]:
+    origin_coords = duffel_city_coords(_clean_place_name(leg["origin"]))
+    dest_coords = duffel_city_coords(_clean_place_name(leg["destination"]))
+    if not origin_coords or not dest_coords:
+        return None
+    return _haversine_miles(origin_coords, dest_coords)
+
+def _suggest_modes(leg: dict, distance: Optional[float]) -> list[str]:
     if _is_island(leg["origin"]) or _is_island(leg["destination"]):
         return ["flight", "ferry"]
     if leg["origin_country"] != leg["destination_country"]:
         return ["flight"]
-    return ["train", "bus", "car"]
+    if distance is None:
+        return ["flight", "train", "bus", "car"]
+    if distance >= FLIGHT_ONLY_MIN_MILES:
+        return ["flight"]
+    if distance <= GROUND_ONLY_MAX_MILES:
+        return ["train", "bus", "car"]
+    return ["flight", "train", "bus"]
+
+def classify_leg_modes(state: TransportPlanningState):
+    annotated = []
+    for leg in state["legs"]:
+        distance = _leg_distance_miles(leg)
+        annotated.append({**leg, "modes_requested": _suggest_modes(leg, distance), "distance_miles": distance})
+
+    raw = interrupt({
+        "type": "transport_mode_review",
+        "message": "Confirm modes per leg (e.g. '0: flight,train | 1: car'), or 'approve' for defaults.",
+        "legs": annotated,   # now includes distance_miles so you can see what drove the suggestion
+    })
+    legs = annotated if raw.strip().lower() in APPROVE_SIGNALS else _apply_mode_overrides(annotated, raw)
+    return {"legs": legs}
+
+def request_home_context(state: TransportPlanningState):
+    raw = interrupt({
+        "type": "home_context_request",
+        "message": "Where are you traveling from? Add '-> city' if returning somewhere "
+                   "different (open-jaw), otherwise it defaults to the same city.",
+        "first_stop": state["dated_itinerary"][0]["city"],
+        "last_stop": state["dated_itinerary"][-1]["city"],
+    })
+    home_raw, _, return_raw = raw.partition("->")
+    home_city = home_raw.strip()
+    return_city = return_raw.strip() or home_city
+
+    return {
+        "home_city": home_city,
+        "home_country": duffel_city_country(home_city) or "",
+        "return_city": return_city,
+        "return_country": duffel_city_country(return_city) or "",
+    }
 
 def _apply_mode_overrides(suggestions: list[dict], raw: str) -> list[dict]:
     # raw format: "0: flight,train | 1: car"
@@ -125,16 +218,6 @@ def _apply_mode_overrides(suggestions: list[dict], raw: str) -> list[dict]:
         {**leg, "modes_requested": overrides.get(i, leg["modes_requested"])}
         for i, leg in enumerate(suggestions)
     ]
-
-def classify_leg_modes(state: TransportPlanningState):
-    suggestions = [{**leg, "modes_requested": _suggest_modes(leg)} for leg in state["legs"]]
-    raw = interrupt({
-        "type": "transport_mode_review",
-        "message": "Confirm modes per leg (e.g. '0: flight,train | 1: car'), or 'approve' for defaults.",
-        "legs": suggestions,
-    })
-    legs = suggestions if raw.strip().lower() in APPROVE_SIGNALS else _apply_mode_overrides(suggestions, raw)
-    return {"legs": legs}
 
 def fan_out_legs(state: TransportPlanningState):
     return [Send("plan_leg", {"leg": leg, "options": [], "raw_options": []}) for leg in state["legs"]]
@@ -164,12 +247,14 @@ BUS_DOMAINS = ["flixbus.com", "busbud.com"]
 
 RAIL_DOMAINS_BY_COUNTRY = {
     "default": RAIL_DOMAINS,
-    "South Korea": ["korail.com", "letskorail.com", "kr.trip.com"],
-    "Japan": ["jorudan.co.jp", "hyperdia.com", "japanrailpass.net"],
+    "KR": ["korail.com", "letskorail.com", "kr.trip.com"],
+    "JP": ["jorudan.co.jp", "hyperdia.com", "japanrailpass.net"],
+    "US": ["amtrak.com", "wanderu.com"],
 }
 BUS_DOMAINS_BY_COUNTRY = {
     "default": BUS_DOMAINS,
-    "South Korea": ["kobus.co.kr", "bustago.or.kr", "kr.trip.com"],
+    "KR": ["kobus.co.kr", "bustago.or.kr", "kr.trip.com"],
+    "US": ["greyhound.com", "peterpanbus.com", "megabus.com"],
 }
 FERRY_DOMAINS = ["directferries.com", "ferryhopper.com"]
 CAR_RENTAL_DOMAINS = ["kayak.com", "rentalcars.com", "expedia.com"]
@@ -199,13 +284,10 @@ def _tavily_results(data) -> list[dict]:
 def discover_relevant_domains(
     query_hint: str, cache_key: tuple[str, str], max_domains: int = 4
 ) -> list[str]:
-    """Unrestricted search to find likely authoritative domains for this leg's
-    destination/mode. Cached per (country, mode) so re-search rounds and other
-    legs in the same country don't re-pay the discovery call. This is the PRIMARY
-    domain-selection path — static lists are only a backfill when this is thin."""
     if cache_key in _domain_cache:
         return _domain_cache[cache_key]
     data = TavilySearch(max_results=5).invoke({"query": query_hint})
+    print(f"[discover_relevant_domains] query={query_hint!r} raw_data_type={type(data)} raw_data={data!r}")  # DEBUG
     domains = []
     for r in _tavily_results(data):
         domain = urlparse(r["url"]).netloc.replace("www.", "")
@@ -217,8 +299,12 @@ def discover_relevant_domains(
 
 def _place_tokens(name: str) -> list[str]:
     """All significant name parts, since we can't rely on a consistent
-    'neighborhood (city)' vs 'city (neighborhood)' convention in the data."""
-    raw = re.split(r"[(),]", name)
+    'neighborhood (city)' vs 'city (neighborhood)' convention in the data.
+    Splits on whitespace as well as punctuation — multi-word city names
+    ("New York City") were previously kept as one space-containing token,
+    which almost never appears literally in a real URL and caused every
+    result for such cities to get filtered out."""
+    raw = re.split(r"[(),\s]+", name)
     return [t.strip().lower() for t in raw if len(t.strip()) > 2]
 
 def _url_matches_route(url: str | None, origin: str, destination: str) -> bool:
@@ -289,19 +375,22 @@ def search_route_options(state: LegTransportState):
         f"official {mode_label} operator booking site {leg['origin']} {leg['destination']}",
         cache_key=(leg["destination_country"], mode_label),
     )
-    # discovery is primary; static list only backfills if discovery is thin
     domains = list(dict.fromkeys(discovered + ROME2RIO_DOMAIN))
     if len(domains) < 3:
         domains += _flatten_by_country(
             leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
         ) + FERRY_DOMAINS
+    print(f"[search_route_options] {leg['origin']} -> {leg['destination']}: domains={domains}")  # DEBUG
 
     query = f"{leg['origin']} to {leg['destination']} {mode_label} schedule tickets"
     if state.get("review_feedback"):
         query += f" — traveler feedback: {state['review_feedback']}"
 
     data = TavilySearch(max_results=5, include_domains=domains, include_raw_content="text").invoke({"query": query})
-    docs = [d for d in _tavily_results(data) if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
+    raw_results = _tavily_results(data)
+    docs = [d for d in raw_results if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
+    print(f"[search_route_options] {leg['origin']} -> {leg['destination']}: "  # DEBUG
+          f"{len(raw_results)} raw tavily results, {len(docs)} survived url filter")
     for d in docs:
         if d.get("raw_content"):
             d["raw_content"] = d["raw_content"][:6000]
@@ -338,7 +427,19 @@ def search_route_options(state: LegTransportState):
         )
         if is_relevant:
             tagged.append({**d, "source": "rome2rio", "round": state.get("search_round", 0)})
+
+    print(f"[search_route_options] {leg['origin']} -> {leg['destination']}: "  # DEBUG
+          f"extracted {len(result.options)} options, {len(tagged)} tagged as relevant")
     return {"raw_options": tagged}
+
+def _country_code(city_name: str, fallback: str) -> str:
+    """Resolves a city to its ISO country code via the shared Duffel airport
+    cache — the single source of truth for country identity in this file, so
+    leg country fields, cross-country comparisons, and domain-map lookups all
+    speak the same format instead of mixing ISO codes with LLM-generated
+    country names. Falls back to the itinerary's original country string only
+    if the city can't be resolved (keeps behavior safe, not silently wrong)."""
+    return duffel_city_country(city_name) or fallback
 
 def verify_route_options(state: LegTransportState):
     """Independent corroboration source — searches operator-specific domains (rail/bus/
@@ -368,7 +469,7 @@ def verify_route_options(state: LegTransportState):
     if not docs:
         return {"raw_options": []}
 
-    structured_llm = llm.with_structured_output(RouteOptions)
+    structured_llm = extraction_llm.with_structured_output(RouteOptions)
     result = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=route_extraction_instructions),
         HumanMessage(content=json.dumps(docs)),
@@ -429,7 +530,7 @@ def search_car_rental(state: LegTransportState):
         query += f" — traveler feedback: {state['review_feedback']}"
 
     data = TavilySearch(max_results=3, include_domains=domains).invoke({"query": query})
-    structured_llm = llm.with_structured_output(TransportOption)
+    structured_llm = extraction_llm.with_structured_output(TransportOption)
     opt = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=(
             "Extract a representative car rental option (mode='car') from this search data. "
@@ -474,35 +575,39 @@ def reconcile_options(state: LegTransportState):
 
     return {"reconciled_options": merged}
 
-recommendation_instructions = """You are recommending the best transportation option for one
-leg of a trip, given all the real options found. Consider genuine trade-offs a traveler would
-care about — not just lowest price:
-- Total travel time and number of connections/segments
-- Whether the leg crosses water or a distance where ground transport is impractical (in which
-  case flight or ferry should rank first even if pricier)
-- Whether an option is unconfirmed/placeholder ("No X service found") — these should always
-  rank last, never recommended
+recommendation_instructions = recommendation_instructions = """You are recommending the best transportation option for one
+leg of a trip, given all the real options found. Weigh price and time together — don't let
+speed silently win by default:
+- Under ~250 miles, the time saved by flying is usually small once you account for security,
+  boarding, and getting to/from the airport — a meaningfully cheaper train or bus should often
+  outrank a marginally faster flight, not just a slower one.
+- Beyond ~250 miles, time matters more, and price differences between similar-speed options
+  (e.g. two flights) should decide the ranking rather than mode alone.
+- Still don't recommend a wildly slower option to save a small amount of money — this is a
+  balance, not a pure cost minimization.
+- Whether the leg crosses water or a distance where ground transport is impractical (flight or
+  ferry should rank first even if pricier).
+- Whether an option is unconfirmed/placeholder ("No X service found") — these always rank last.
 Return every option's index in your ranked_option_indices, best to worst — don't drop any."""
 
 def recommend_leg_options(state: LegTransportState):
     current = state["reconciled_options"]
-
     if not current:
         return {"options": [], "recommendation_reasoning": None}
+
+    leg = state["leg"]
+    distance_note = f" (~{leg['distance_miles']:.0f} miles)" if leg.get("distance_miles") else ""
 
     structured_llm = llm.with_structured_output(LegRecommendation)
     rec = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=recommendation_instructions),
-        HumanMessage(content=f"Leg: {state['leg']['origin']} → {state['leg']['destination']}\n"
+        HumanMessage(content=f"Leg: {leg['origin']} → {leg['destination']}{distance_note}\n"
                               f"Options: {json.dumps(current)}"),
     ], LegRecommendation)
 
     ranked = [current[i] for i in rec.ranked_option_indices if 0 <= i < len(current)]
-    # safety net: if the model dropped any options from its ranking, append them at the end
-    # rather than silently losing them
     missing = [o for i, o in enumerate(current) if i not in rec.ranked_option_indices]
     ranked.extend(missing)
-
     return {"options": ranked, "recommendation_reasoning": rec.reasoning}
 
 def review_leg_transport(state: LegTransportState):
@@ -513,6 +618,8 @@ def review_leg_transport(state: LegTransportState):
                        "found for the requested modes. Reply with feedback to re-search "
                        "(e.g. different modes), or 'skip' to leave this leg unresolved.",
             "recommendation_reasoning": None,
+            "raw_option_count": len(state.get("raw_options", [])),  # debug — remove once resolved
+            "reconciled_count": len(state.get("reconciled_options", [])),  # debug — remove once resolved
             "options": [],
         })
         if raw.strip().lower() == "skip":
@@ -588,8 +695,11 @@ builder.add_node("derive_legs", derive_legs)
 builder.add_node("classify_leg_modes", classify_leg_modes)
 builder.add_node("plan_leg", leg_builder.compile(name="plan_leg"))
 builder.add_node("aggregate_legs", aggregate_legs)
+# wiring — replace the existing START edge
 
-builder.add_edge(START, "derive_legs")
+builder.add_node("request_home_context", request_home_context)
+builder.add_edge(START, "request_home_context")
+builder.add_edge("request_home_context", "derive_legs")
 builder.add_edge("derive_legs", "classify_leg_modes")
 builder.add_conditional_edges("classify_leg_modes", fan_out_legs, ["plan_leg"])
 builder.add_edge("plan_leg", "aggregate_legs")
@@ -598,6 +708,9 @@ builder.add_edge("aggregate_legs", END)
 transport_graph = builder.compile()
 
 if __name__ == "__main__":
+    print("NYC:", duffel_places_lookup("New York City"))
+    print("NY:", duffel_places_lookup("New York"))
+    print("CHI:", duffel_places_lookup("Chicago"))
     config = {"configurable": {"thread_id": "1"}}
     checkpointer = InMemorySaver()
     graph = builder.compile(checkpointer=checkpointer)
