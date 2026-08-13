@@ -1,0 +1,25 @@
+# --- Core orchestration ---
+langgraph>=0.2.60
+langgraph-checkpoint>=2.0.0
+langgraph-cli[inmem]>=0.1.60   # local LangGraph Studio dev server (`langgraph dev`)
+langsmith>=0.1.147             # tracing shown in LangSmith Studio
+
+# --- LangChain ecosystem ---
+langchain>=0.3.7                # langchain.agents.create_agent (main.py)
+langchain-core>=0.3.15
+langchain-openai>=0.2.9         # ChatOpenAI, used for every tier via OpenRouter (llm_config.py)
+langchain-anthropic>=0.3.0      # ChatAnthropic import (currently unused call site in trip_info_graph.py)
+langchain-tavily>=0.1.0         # TavilySearch, TavilyExtract
+
+# --- Model providers ---
+anthropic>=0.39.0               # APIStatusError handling, beta.messages import in main.py
+
+# --- Domain APIs ---
+duffel-api>=0.4.0               # flight search/offers (main.py)
+requests>=2.32.0                # Duffel REST calls, frankfurter.app FX lookups
+
+# --- Data / validation ---
+pydantic>=2.9.0
+
+# --- Utilities ---
+python-dotenv>=1.0.1
