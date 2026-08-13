@@ -163,27 +163,50 @@ def _match_airports(city_name: str) -> list[dict]:
 
     def loose_match(a):
         name, city = (a.get("name") or "").lower(), (a.get("city_name") or "").lower()
-        return (name and (q in name or name in q)) or (city and (q in city or city in q))
+        def _plausible(field):
+            if not field:
+                return False
+            shorter, longer = sorted([field, q], key=len)
+            return shorter in longer and len(shorter) / len(longer) >= 0.7
+        return _plausible(name) or _plausible(city)
 
     for tier in (exact_code, exact_name, word_match):
         matches = [a for a in _airport_cache if tier(a)]
         if matches:
             return matches
 
-    return [a for a in _airport_cache if loose_match(a)] if len(q) >= 3 else []
+    return [a for a in _airport_cache if loose_match(a)] if len(q) >= 4 else []
 
 # main.py
+# main.py — replace duffel_places_lookup's local-match approach
 def duffel_places_lookup(city_name: str) -> list[str]:
-    if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
-        with _cache_lock:
-            if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
-                _refresh_airport_cache()
-
-    matches = _match_airports(city_name)
-    city_codes = {a["iata_city_code"] for a in matches if a.get("iata_city_code")}
-    if city_codes:
-        return list(city_codes)
-    return [a["iata_code"] for a in matches if a.get("iata_code")]
+    """Delegates to Duffel's own /places/suggestions endpoint instead of
+    fuzzy-matching against a locally cached airport dump. This is the fix
+    that stops the recurring place-name failures at the source: Duffel
+    maintains and ranks this matching themselves, so 'Jeju Island', 'Mundaka',
+    'Tarifa (Andalusia)', etc. resolve the same way they would in Duffel's
+    own booking UI, rather than depending on our regex/substring heuristics
+    correctly anticipating every format an LLM might generate."""
+    headers = {
+        "Authorization": f"Bearer {duffel_api_key}",
+        "Duffel-Version": DUFFEL_VERSION,
+        "Accept": "application/json",
+    }
+    resp = requests.get(
+        f"{DUFFEL_BASE_URL}/places/suggestions",
+        params={"query": city_name},
+        headers=headers,
+    )
+    resp.raise_for_status()
+    places = resp.json()["data"]
+    if not places:
+        return []
+    # a "city" type place includes its associated airports; prefer that,
+    # fall back to the airport/place codes directly otherwise
+    top = places[0]
+    if top.get("type") == "city" and top.get("airports"):
+        return [a["iata_code"] for a in top["airports"]]
+    return [top["iata_code"]] if top.get("iata_code") else []
 
 def duffel_city_coords(city_name: str) -> Optional[tuple[float, float]]:
     if not _airport_cache or (time.time() - _cache_refreshed_at) > CACHE_TTL_SECONDS:
@@ -356,12 +379,3 @@ if __name__ == "__main__":
     print(result["ranked_results"])
 else:
     graph = builder.compile()
-
-'''
-{
-  "user_message": "I want to fly from Boston to Tokyo leaving August 22nd and returning September 10th for myself in economy class with no layovers",
-  "context": [],
-  "resolved_origins": [],
-  "resolved_destinations": []
-}
-'''

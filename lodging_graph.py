@@ -25,6 +25,7 @@ from trip_info_graph import (
 )
 from leg_transportation_graph import (
     discover_relevant_domains, _tavily_results, _place_tokens, _clean_place_name,
+    normalize_country_fallback,
 )
 
 llm = get_llm("premium")  # recommend_stay_options stays premium
@@ -143,22 +144,63 @@ def _pick_representative(options: list[dict]) -> dict:
         return with_url[0]
     return options[0]
 
-def _apply_pricing(d: dict, nights: int) -> dict:
+
+# Country -> plausible price currencies for THAT country's own listings. Keyed by ISO
+# country code, so leg["country"] must be normalized to ISO before this is consulted —
+# see derive_stay_legs, which now runs the raw dated_itinerary country string through
+# normalize_country_fallback() rather than passing it through unchanged. Without that
+# normalization, a leg whose country never resolved via duffel_city_country() would
+# carry a raw string like "South Korea" instead of "KR", this dict would look it up and
+# find nothing, and _is_plausible_currency would silently treat every currency as fine —
+# the exact same fallback-format mismatch that caused the earlier flight-leg bug, just
+# recurring in a different file.
+PLAUSIBLE_CURRENCIES_BY_COUNTRY = {
+    "KR": {"KRW", "USD"}, "ES": {"EUR", "USD"}, "PT": {"EUR", "USD"},
+    "JP": {"JPY", "USD"}, "US": {"USD"}, "FR": {"EUR", "USD"},
+    "TH": {"THB", "USD"}, "VN": {"VND", "USD"},
+    # extend as new destinations come up — an unmapped country is never flagged, so
+    # this only guards places you've actually added.
+}
+
+
+def _is_plausible_currency(currency: str, country: Optional[str]) -> bool:
+    if not country or currency == "USD":
+        return True  # USD is always a reasonable traveler-facing quoted price
+    allowed = PLAUSIBLE_CURRENCIES_BY_COUNTRY.get(country)
+    return currency in allowed if allowed else True  # unmapped country: don't false-flag
+
+
+def _apply_pricing(d: dict, nights: int, country: Optional[str] = None) -> dict:
     """Shared by every search node so price_usd/price_per_night_usd/total_cost_usd/
     price_note are computed identically everywhere. When price_type is "unknown" but a
     real price_usd exists, don't just drop it — recommend_stay_options otherwise treats
-    the option as priceless even though a real (if unlabeled) number was found."""
+    the option as priceless even though a real (if unlabeled) number was found.
+
+    Also flags a currency that's implausible for the destination (e.g. a Seoul hotel
+    priced in INR) — usually a session/geolocation quirk on the source page rather than
+    a real local rate. The two notes are independent conditions (an option can be both
+    unlabeled AND in a suspicious currency), so they're combined rather than using elif,
+    which would let one note silently suppress the other."""
     d["price_usd"] = _to_usd(d.get("price_amount"), d.get("price_currency"))
     d["price_per_night_usd"], d["total_cost_usd"] = _derive_night_total(
         d["price_usd"], d.get("price_type", "unknown"), nights
     )
+
+    notes = []
     if d["price_usd"] is not None and d.get("price_type") == "unknown":
-        d["price_note"] = (
+        notes.append(
             f"${d['price_usd']:,.2f} found but not labeled as nightly or total — "
             "treat as approximate, don't assume it's the full stay cost"
         )
-    return d
+    if d.get("price_currency") and country and not _is_plausible_currency(d["price_currency"], country):
+        notes.append(
+            f"Price shown in {d['price_currency']}, unusual for {country} — may be a "
+            "currency-detection error on the source page; verify before booking"
+        )
+    if notes:
+        d["price_note"] = " | ".join(notes)
 
+    return d
 
 # ---------- Schemas ----------
 
@@ -167,11 +209,16 @@ class StayOption(BaseModel):
     name: str
     area: Optional[str] = Field(None, description="Neighborhood or district, if stated")
     price_estimate: Optional[str] = Field(None, description="Raw price text exactly as shown, e.g. '€142/night'")
-    price_amount: Optional[float] = Field(None, description="Numeric price value only, matching price_estimate")
+    price_amount: Optional[float] = Field(
+        None, description="Numeric price. If the source gives a RANGE (e.g. '$50-70', "
+                          "'between $301 and $350'), set this to the midpoint — never "
+                          "leave it null just because the source wasn't a single number."
+    )
     price_currency: Optional[str] = Field(
         None, description="3-letter ISO 4217 code, e.g. USD, EUR, JPY — infer from symbol/context if not spelled out"
     )
-    # lodging_graph.py — StayOption
+    price_amount_min: Optional[float] = Field(None, description="Populate alongside price_amount when the source gave a range")
+    price_amount_max: Optional[float] = Field(None, description="Populate alongside price_amount when the source gave a range")
     price_type: Literal["per_night", "total", "per_person_per_night", "unknown"] = Field(
         description="Whether price_amount is a nightly rate, a total-stay price, or a "
                     "per-person nightly rate (common on Korean/Japanese listings, e.g. "
@@ -243,7 +290,13 @@ def derive_stay_legs(state: LodgingPlanningState):
     stops = state["dated_itinerary"]
     legs = [{
         "city": s["city"],
-        "country": duffel_city_country(_clean_place_name(s["city"])) or s["country"],
+        # duffel_city_country() returns real ISO when it resolves; when it doesn't,
+        # normalize_country_fallback() converts the raw LLM-generated country string
+        # (e.g. "South Korea") to ISO too, so leg["country"] is ALWAYS ISO by the time
+        # it's used anywhere downstream — including PLAUSIBLE_CURRENCIES_BY_COUNTRY
+        # lookups in _apply_pricing, which would otherwise silently no-op on a raw
+        # country name it doesn't recognize.
+        "country": duffel_city_country(_clean_place_name(s["city"])) or normalize_country_fallback(s["country"]),
         "check_in": s["depart_date"],
         "check_out": s["return_date"],
         "duration_days": s["duration_days"],
@@ -394,8 +447,6 @@ def _format_date_query(check_in: str, check_out: str) -> str:
 
 # ---------- Search nodes ----------
 
-# lodging_graph.py
-
 stay_extraction_instructions = """You are extracting accommodation options from a hotel/
 booking search results page for ONE specific city and specific stay type(s).
 
@@ -426,7 +477,15 @@ price_type left as a guess dressed up as certainty.
 
 For booking_url, if the page offers multiple links for the same property, prefer one that
 leads to rooms, rates, or booking/availability — not a photo gallery, review page, or map
-view. Only fall back to a general property page if no more specific link is available."""
+view. Only fall back to a general property page if no more specific link is available.
+
+When a price is given as a RANGE rather than a single number (e.g. 'USD 50-70 per
+night', '$26 to $50', 'between $301 and $350'), you MUST still populate price_amount
+— set it to the midpoint of the range, and additionally populate price_amount_min and
+price_amount_max with the range bounds. Do not leave price_amount null just because
+the source gave a range instead of one number; a null price_amount means 'no price
+was found,' which is different from 'a price range was found.'
+"""
 
 rate_extraction_instructions = """You are extracting hotel listings AND their prices from a
 live search-results page that was loaded with a specific check-in and check-out date already
@@ -516,7 +575,7 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
                 continue
             d = opt.model_dump()
             d["booking_url"] = _clean_url(d.get("booking_url"), base_city, domains)
-            d = _apply_pricing(d, nights)
+            d = _apply_pricing(d, nights, country=leg["country"])
             tagged.append({**d, "source": source, "round": round_num, "search_query": query, "matched_area": area})
 
     return tagged
@@ -609,7 +668,7 @@ def search_rates_direct(state: StayLegState):
                 d = opt.model_dump()
                 source_domain = urlparse(url).netloc.replace("www.", "")
                 d["booking_url"] = _clean_url(d.get("booking_url"), base_city, [source_domain]) or url
-                d = _apply_pricing(d, nights)
+                d = _apply_pricing(d, nights, country=leg["country"])
                 # the URL itself IS the query here — pointing straight at the exact dated search
                 tagged.append({**d, "source": source, "round": state.get("search_round", 0),
                                "date_specific": True, "search_query": url, "matched_area": area})
@@ -618,7 +677,18 @@ def search_rates_direct(state: StayLegState):
 
 # ---------- Reconciliation ----------
 
-# lodging_graph.py
+def _best_available_total(opt: dict) -> Optional[float]:
+    """Prefer the representative option's own total_cost_usd; if that's null
+    but a corroborating source in price_by_source parsed a real number,
+    fall back to that rather than showing 'n/a' when better data exists
+    right next to it (e.g. Agoda's unparsed '$301-$350' range alongside
+    Expedia's clean $392/night, $1,176 total for the same property)."""
+    if opt.get("total_cost_usd") is not None:
+        return opt["total_cost_usd"]
+    for src_data in (opt.get("price_by_source") or {}).values():
+        if src_data.get("total_cost_usd") is not None:
+            return src_data["total_cost_usd"]
+    return None
 
 def reconcile_stay_options(state: StayLegState):
     """Merge this round's raw_options into a single confidence-tagged list.
@@ -739,6 +809,12 @@ a trip, given all real options found. Consider genuine trade-offs a traveler wou
 - If an option has a "points_value" entry, note it in your reasoning (e.g. a chain hotel
   that's a strong points redemption may be worth ranking above a slightly cheaper cash
   option) — but this is a bonus factor, not a reason to override a clearly better fit
+- Only state a specific price or total cost in your reasoning if it is backed by a
+  non-null price_amount, total_cost_usd, or price_per_night_usd field on that option.
+  If price_estimate contains text (e.g. a range) but the structured price fields are
+  null, describe it as 'pricing not confidently parsed — see price_estimate text'
+  rather than doing your own arithmetic on the raw string and presenting it as a
+  verified number.
 Return every option's index in ranked_option_indices, best to worst — don't drop any."""
 
 
@@ -900,9 +976,9 @@ if __name__ == "__main__":
             for i, opt in enumerate(data["options"]):
                 pn = f"${opt['price_per_night_usd']:,.2f}/night" if opt.get(
                     "price_per_night_usd") is not None else "night rate n/a"
-                tot = f"${opt['total_cost_usd']:,.2f} total" if opt.get("total_cost_usd") is not None else "total n/a"
+                tot = f"${_best_available_total(opt):,.2f} total" if _best_available_total(opt) is not None else "total n/a"
                 if opt.get("price_note"):
-                    tot = opt["price_note"]  # unlabeled-but-real price — show the caveat instead of "n/a"
+                    tot = opt["price_note"]  # unlabeled-but-real price and/or currency-mismatch caveat
                 pv = opt.get("points_value")
                 pv_str = f" — points: {pv}" if pv else ""
                 price_spread = opt.get("price_by_source")
@@ -924,7 +1000,7 @@ if __name__ == "__main__":
         if sel:
             pn = f"${sel['price_per_night_usd']:,.2f}/night" if sel.get(
                 "price_per_night_usd") is not None else "night rate n/a"
-            tot = f"${sel['total_cost_usd']:,.2f} total" if sel.get("total_cost_usd") is not None else "total n/a"
+            tot = f"${_best_available_total(sel):,.2f} total" if _best_available_total(sel) is not None else "total n/a"
             print(f"  {leg['city']}: {sel['type']} ({sel['brand_classification']}) — {sel.get('name')} "
                   f"({pn} / {tot}, {sel['confidence']})")
             print(f"    query: {sel.get('search_query')}")
