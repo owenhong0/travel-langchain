@@ -131,6 +131,11 @@ def derive_legs(state: TransportPlanningState):
 ISLAND_DESTINATIONS = {
     "jeju", "okinawa", "bali", "phuket", "boracay", "santorini", "mykonos",
     "hawaii", "maui", "oahu", "sicily", "sardinia", "corsica",
+    # Southeast Asia — added after "car" got selected as a finalized mode between
+    # islands with no bridge/ground connections (Con Dao <-> Phu Quoc,
+    # Khao Sok <-> Koh Samui, Koh Samui <-> Koh Phangan). Khao Sok and Krabi are
+    # intentionally NOT in this set — they're mainland and correctly get ground modes.
+    "con dao", "koh lanta", "koh phangan", "koh samui", "koh tao", "phu quoc",
 }
 
 def _is_island(place_name: str) -> bool:
@@ -251,6 +256,7 @@ RAIL_DOMAINS_BY_COUNTRY = {
     "JP": ["jorudan.co.jp", "hyperdia.com", "japanrailpass.net"],
     "US": ["amtrak.com", "wanderu.com"],
 }
+
 BUS_DOMAINS_BY_COUNTRY = {
     "default": BUS_DOMAINS,
     "KR": ["kobus.co.kr", "bustago.or.kr", "kr.trip.com"],
@@ -330,9 +336,15 @@ def _clean_url(url: str | None, origin: str, destination: str) -> Optional[str]:
     return url
 
 def _clean_place_name(name: str) -> str:
-    """Strip parenthetical qualifiers like '(Busan)' before using a name in an
-    external lookup (Duffel places, rental search) that expects a plain city name."""
-    return re.sub(r"\s*\(.*?\)", "", name).strip()
+    """Strip parenthetical qualifiers like '(Busan)' AND common geographic
+    suffixes like 'Island'/'-do' that don't appear in Duffel's canonical
+    city_name field — e.g. 'Jeju Island' needs to become 'Jeju' before an
+    airport lookup, or it silently fails to match and forces an extra
+    no-options retry round on every trip that includes it."""
+    cleaned = re.sub(r"\s*\(.*?\)", "", name).strip()
+    cleaned = re.sub(r"\s+Island$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"-do$", "", cleaned, flags=re.IGNORECASE)  # Korean island/province suffix
+    return cleaned.strip()
 
 def _parse_duration_hours(duration: str | None) -> float:
     if not duration:
@@ -340,6 +352,163 @@ def _parse_duration_hours(duration: str | None) -> float:
     hours = re.search(r"(\d+)h", duration)
     mins = re.search(r"(\d+)min", duration)
     return (int(hours.group(1)) if hours else 0) + (int(mins.group(1)) if mins else 0) / 60
+
+# ---------- Nearby-airport overrides ----------
+#
+# Some towns have no airport of their own but sit close enough to a real one that a
+# flight + short ground transfer is a legitimate alternative to a long bus/train —
+# e.g. Hoi An has no airport, but Da Nang (30km away) does. This is different from
+# the _clean_place_name suffix-stripping fix: that fix handles a REAL airport whose
+# NAME didn't match (Jeju Island -> Jeju); this handles a town with NO airport at all,
+# where substituting a nearby city is the only way a flight option can exist.
+#
+# Scoped ONLY to search_flight_leg's internal Duffel lookup — leg["origin"]/
+# leg["destination"] are never rewritten, so display, ground-transport search, and
+# lodging all still see the real town name. Extend as new airport-less towns come up;
+# these are the ones already hit plus a starter set for common backpacker/beach
+# regions likely to come up next (not exhaustive).
+NEARBY_AIRPORT_OVERRIDES = {
+    # Vietnam
+    "hoi an": ("Da Nang", 30),
+    "sapa": ("Hanoi", 320),          # long transfer — flagged loudly via transfer_note
+    # Thailand
+    "khao sok national park": ("Surat Thani", 70),
+    "pai": ("Chiang Mai", 135),
+    "ao nang": ("Krabi", 20),
+    # Spain / Basque coast
+    "mundaka": ("Bilbao", 35),
+    "zarautz": ("Bilbao", 65),
+    "tarifa": ("Jerez de la Frontera", 100),
+    # Italy
+    "positano": ("Naples", 60),
+    "amalfi": ("Naples", 65),
+    "cinque terre": ("Pisa", 100),
+}
+
+def _flight_lookup_name(place_name: str) -> tuple[str, Optional[int]]:
+    """Returns (name to actually look up in Duffel, transfer_km or None). For most
+    places this is just the cleaned place name with no transfer. For known
+    airport-less towns, substitutes the nearest real airport city and returns the
+    approximate transfer distance so the flight option can be tagged with an honest
+    caveat rather than looking like a door-to-door flight."""
+    cleaned = _clean_place_name(place_name)
+    override = NEARBY_AIRPORT_OVERRIDES.get(cleaned.lower())
+    if override:
+        return override[0], override[1]
+    return cleaned, None
+
+# ---------- Country name normalization ----------
+
+COUNTRY_NAME_TO_ISO = {
+    # --- Europe ---
+    "spain": "ES", "españa": "ES",
+    "portugal": "PT",
+    "france": "FR",
+    "italy": "IT", "italia": "IT",
+    "germany": "DE", "deutschland": "DE",
+    "united kingdom": "GB", "uk": "GB", "great britain": "GB", "england": "GB",
+    "scotland": "GB", "wales": "GB", "northern ireland": "GB",
+    "ireland": "IE",
+    "netherlands": "NL", "holland": "NL",
+    "belgium": "BE",
+    "switzerland": "CH",
+    "austria": "AT",
+    "greece": "GR",
+    "croatia": "HR",
+    "iceland": "IS",
+    "norway": "NO",
+    "sweden": "SE",
+    "denmark": "DK",
+    "finland": "FI",
+    "poland": "PL",
+    "czech republic": "CZ", "czechia": "CZ",
+    "hungary": "HU",
+    "turkey": "TR", "türkiye": "TR",
+    "malta": "MT",
+    "cyprus": "CY",
+
+    # --- Asia ---
+    "south korea": "KR", "korea": "KR", "republic of korea": "KR",
+    "japan": "JP",
+    "china": "CN",
+    "taiwan": "TW",
+    "hong kong": "HK",
+    "thailand": "TH",
+    "vietnam": "VN",
+    "indonesia": "ID",
+    "philippines": "PH",
+    "malaysia": "MY",
+    "singapore": "SG",
+    "india": "IN",
+    "nepal": "NP",
+    "sri lanka": "LK",
+    "cambodia": "KH",
+    "laos": "LA",
+    "myanmar": "MM",
+    "maldives": "MV",
+
+    # --- Middle East ---
+    "united arab emirates": "AE", "uae": "AE",
+    "israel": "IL",
+    "jordan": "JO",
+    "qatar": "QA",
+    "saudi arabia": "SA",
+    "oman": "OM",
+    "turkiye": "TR",
+
+    # --- Americas ---
+    "united states": "US", "usa": "US", "united states of america": "US",
+    "canada": "CA",
+    "mexico": "MX",
+    "brazil": "BR",
+    "argentina": "AR",
+    "chile": "CL",
+    "peru": "PE",
+    "colombia": "CO",
+    "costa rica": "CR",
+    "panama": "PA",
+    "ecuador": "EC",
+    "uruguay": "UY",
+    "cuba": "CU",
+    "dominican republic": "DO",
+    "jamaica": "JM",
+    "bahamas": "BS",
+
+    # --- Oceania ---
+    "australia": "AU",
+    "new zealand": "NZ",
+    "fiji": "FJ",
+
+    # --- Africa ---
+    "morocco": "MA",
+    "egypt": "EG",
+    "south africa": "ZA",
+    "kenya": "KE",
+    "tanzania": "TZ",
+    "tunisia": "TN",
+}
+
+def normalize_country_fallback(fallback: str) -> str:
+    """Normalize an LLM-generated country name/string to ISO if we have a mapping;
+    otherwise return it unchanged. Used wherever duffel_city_country() fails to
+    resolve and we fall back to the raw country string from itinerary data — without
+    this, that raw string (e.g. 'South Korea') would mismatch against a resolved ISO
+    code (e.g. 'KR') anywhere the two get compared, which is the root cause behind
+    both the earlier flight cross-country false-mismatch bug and the lodging
+    currency-plausibility gap."""
+    return COUNTRY_NAME_TO_ISO.get(fallback.strip().lower(), fallback)
+
+def _country_code(city_name: str, fallback: str) -> str:
+    """Resolves a city to its ISO country code via the shared Duffel airport
+    cache — the single source of truth for country identity in this file, so
+    leg country fields, cross-country comparisons, and domain-map lookups all
+    speak the same format instead of mixing ISO codes with LLM-generated
+    country names. Falls back to a normalized version of the itinerary's
+    original country string only if the city can't be resolved."""
+    resolved = duffel_city_country(_clean_place_name(city_name))
+    if resolved:
+        return resolved
+    return normalize_country_fallback(fallback)
 
 # ---------- Search nodes ----------
 
@@ -432,15 +601,6 @@ def search_route_options(state: LegTransportState):
           f"extracted {len(result.options)} options, {len(tagged)} tagged as relevant")
     return {"raw_options": tagged}
 
-def _country_code(city_name: str, fallback: str) -> str:
-    """Resolves a city to its ISO country code via the shared Duffel airport
-    cache — the single source of truth for country identity in this file, so
-    leg country fields, cross-country comparisons, and domain-map lookups all
-    speak the same format instead of mixing ISO codes with LLM-generated
-    country names. Falls back to the itinerary's original country string only
-    if the city can't be resolved (keeps behavior safe, not silently wrong)."""
-    return duffel_city_country(city_name) or fallback
-
 def verify_route_options(state: LegTransportState):
     """Independent corroboration source — searches operator-specific domains (rail/bus/
     ferry company sites) discovered live for this leg's country, separate from
@@ -481,11 +641,11 @@ def verify_route_options(state: LegTransportState):
 
 def search_flight_leg(state: LegTransportState):
     leg = state["leg"]
-    origin_clean = _clean_place_name(leg["origin"])
-    dest_clean = _clean_place_name(leg["destination"])
+    origin_lookup_name, origin_transfer_km = _flight_lookup_name(leg["origin"])
+    dest_lookup_name, dest_transfer_km = _flight_lookup_name(leg["destination"])
 
-    origin_codes = duffel_places_lookup(origin_clean)
-    dest_codes = duffel_places_lookup(dest_clean)
+    origin_codes = duffel_places_lookup(origin_lookup_name)
+    dest_codes = duffel_places_lookup(dest_lookup_name)
 
     # duffel_places_lookup's own last-resort passthrough returns the input string
     # unchanged when it finds nothing — that's not a real airport code, so treat
@@ -496,23 +656,38 @@ def search_flight_leg(state: LegTransportState):
     if not origin_codes or not _is_real_code(origin_codes[0]) or not dest_codes or not _is_real_code(dest_codes[0]):
         return {"raw_options": [{
             "mode": "flight",
-            "provider": f"No flight route found ({origin_clean} → {dest_clean})",
+            "provider": f"No flight route found ({leg['origin']} → {leg['destination']})",
             "price_estimate": None,
             "duration": None,
             "booking_url": None,
             "segments": None,
             "round": state.get("search_round", 0),
+            "unresolved": True,  # marks this as a non-real option — filtered out in
+                                 # recommend_leg_options so it can never be silently finalized
         }]}
 
     offers = fetch_flight_offers(origin_codes[0], dest_codes[0], leg["depart_date"], passenger_count=1)
+
+    # If either endpoint used a nearby-airport override, say so explicitly on the
+    # option — a flight into Da Nang for a "Hoi An" leg isn't door-to-door, and
+    # recommend_leg_options needs this to weigh the extra transfer fairly against
+    # a direct ground option instead of comparing raw flight duration alone.
+    transfer_parts = []
+    if origin_transfer_km:
+        transfer_parts.append(f"~{origin_transfer_km}km transfer from {origin_lookup_name} airport to {leg['origin']}")
+    if dest_transfer_km:
+        transfer_parts.append(f"~{dest_transfer_km}km transfer from {dest_lookup_name} airport to {leg['destination']}")
+    transfer_note = "; ".join(transfer_parts) or None
+
     options = [{
         "mode": "flight",
-        "provider": o["owner"]["name"],
+        "provider": o["owner"]["name"] + (f" (lands at {dest_lookup_name}, not {leg['destination']} directly)" if dest_transfer_km else ""),
         "price_estimate": f"{o['price']['total_amount']} {o['price']['currency']}",
         "duration": o["slices"][0]["duration"],
         "booking_url": None,
         "segments": None,
         "round": state.get("search_round", 0),
+        **({"transfer_note": transfer_note} if transfer_note else {}),
     } for o in offers[:5]]
     return {"raw_options": options}
 
@@ -538,7 +713,13 @@ def search_car_rental(state: LegTransportState):
             "Accept results for rentals anywhere in that city or its main airport, even if "
             "the exact neighborhood/district name isn't mentioned verbatim — a rental listed "
             "generally for the city is valid. Only treat it as not found if results are for a "
-            "clearly different city entirely."
+            "clearly different city entirely.\n\n"
+            "IMPORTANT: duration must be a rental LENGTH (e.g. '3 days', 'per day') or omitted "
+            "entirely — never a calendar availability window like 'Sep 7 - Sep 30', which is "
+            "not a trip duration and must not be extracted into this field. If price_estimate "
+            "and duration are both unavailable/unclear from the source, leave provider populated "
+            "but set price_estimate and duration to null rather than guessing or copying an "
+            "unrelated number from the page."
         )),
         HumanMessage(content=json.dumps(_tavily_results(data))),
     ], TransportOption)
@@ -575,7 +756,7 @@ def reconcile_options(state: LegTransportState):
 
     return {"reconciled_options": merged}
 
-recommendation_instructions = recommendation_instructions = """You are recommending the best transportation option for one
+recommendation_instructions = """You are recommending the best transportation option for one
 leg of a trip, given all the real options found. Weigh price and time together — don't let
 speed silently win by default:
 - Under ~250 miles, the time saved by flying is usually small once you account for security,
@@ -588,10 +769,18 @@ speed silently win by default:
 - Whether the leg crosses water or a distance where ground transport is impractical (flight or
   ferry should rank first even if pricier).
 - Whether an option is unconfirmed/placeholder ("No X service found") — these always rank last.
+- An option with a missing price AND missing duration is nearly as unreliable as an
+  explicit 'not found' placeholder — rank it low even if it's the only option in the round,
+  rather than treating 'only option available' as a reason to rank it first.
+- If an option has a 'transfer_note' (a flight landing at a nearby airport rather than the
+  destination itself), factor the extra ground transfer time and cost into your comparison
+  against direct ground options — don't just compare flight duration alone against a direct
+  bus/train duration, since a "1 hour flight" with a 2-hour transfer on each end may lose to
+  a single 5-hour direct bus.
 Return every option's index in your ranked_option_indices, best to worst — don't drop any."""
 
 def recommend_leg_options(state: LegTransportState):
-    current = state["reconciled_options"]
+    current = [o for o in state["reconciled_options"] if not o.get("unresolved")]
     if not current:
         return {"options": [], "recommendation_reasoning": None}
 

@@ -4,7 +4,8 @@
     "main": "./main.py:graph",
     "trip_info": "./trip_info_graph.py:graph",
     "transportation": "./leg_transportation_graph.py:transport_graph",
-    "lodging": "./lodging_graph.py:lodging_graph"
+    "lodging": "./lodging_graph.py:lodging_graph",
+    "orchestrator": "./trip_orchestrator.py:orchestrator"
   },
   "env": "./.env",
   "python_version": "3.11",

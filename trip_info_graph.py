@@ -18,16 +18,14 @@ from langgraph.graph import StateGraph, MessagesState
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from llm_config import get_llm
+
 load_dotenv()
 
 # llm = ChatAnthropic(model_name="claude-sonnet-5", thinking={"type": "disabled"})  # used for .with_structured_output(...) calls
 
-llm = ChatOpenAI(
-    model="anthropic/claude-sonnet-5",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    streaming=False,
-)
+llm = get_llm("premium") # create_analysts, extract_candidates, order_destinations, compute_dates
+interview_llm = get_llm("mid") # generate_question, generate_answer, write_section
 retryable_llm = llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
 
 
@@ -860,7 +858,7 @@ builder.add_conditional_edges(
     {"END": END, "compute_dates": "compute_dates"},
 )
 
-destination_graph = builder.compile(interrupt_before=["human_feedback"])
+destination_graph = builder.compile()
 
 if __name__ == "__main__":
     config = {"configurable": {"thread_id": "1"}}

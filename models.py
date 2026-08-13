@@ -82,6 +82,17 @@ class FlightOffer(BaseModel):
     expires_at: str
     slices: list[Slice]
 
+def _safe(d: Optional[dict], key: str, default=None):
+    """dict.get(key, default) only falls back to `default` when the key is
+    MISSING. Duffel frequently sends an explicit null for amenities/cabin/
+    conditions fields that aren't populated for a given fare, which returns
+    None (not default) and breaks any chained .get() on the result. This
+    treats an explicit null the same as a missing key."""
+    if d is None:
+        return default
+    value = d.get(key, default)
+    return default if value is None else value
+
 def extract_place(p: dict) -> Place:
     return Place(
         iata_code=p["iata_code"],
@@ -97,9 +108,11 @@ def extract_carrier(c: dict) -> Carrier:
 
 def extract_segment(seg: dict) -> Segment:
     passenger_info = seg["passengers"][0]
-    cabin_data = passenger_info.get("cabin", {})
-    amenities_data = cabin_data.get("amenities", {})
-    wifi_data = amenities_data.get("wifi", {})
+    cabin_data = _safe(passenger_info, "cabin", {})
+    amenities_data = _safe(cabin_data, "amenities", {})
+    wifi_data = _safe(amenities_data, "wifi", {})
+    seat_data = _safe(amenities_data, "seat", {})
+    power_data = _safe(amenities_data, "power", {})
 
     return Segment(
         operating_carrier=extract_carrier(seg["operating_carrier"]),
@@ -118,8 +131,8 @@ def extract_segment(seg: dict) -> Segment:
             marketing_name=cabin_data.get("marketing_name"),
             amenities=Amenities(
                 wifi=Wifi(available=wifi_data.get("available"), cost=wifi_data.get("cost")),
-                seat_pitch=amenities_data.get("seat", {}).get("pitch"),
-                power_available=amenities_data.get("power", {}).get("available"),
+                seat_pitch=seat_data.get("pitch"),
+                power_available=power_data.get("available"),
             ),
         ),
         baggages=[Baggage(type=b["type"], quantity=b["quantity"]) for b in seg.get("baggages", [])],
@@ -141,9 +154,9 @@ def extract_condition_penalty(value) -> Optional[str]:
 
 def extract_slice(s: dict) -> Slice:
     segments = [extract_segment(seg) for seg in s["segments"]]
-    conditions = s.get("conditions", {})
-    change = conditions.get("change_before_departure")
-    seat = conditions.get("advance_seat_selection")
+    conditions = _safe(s, "conditions", {})
+    change = _safe(conditions, "change_before_departure")
+    seat = _safe(conditions, "advance_seat_selection")
 
     return Slice(
         origin=extract_place(s["origin"]),
@@ -160,9 +173,9 @@ def extract_slice(s: dict) -> Slice:
     )
 
 def extract_offer(o: dict) -> FlightOffer:
-    conditions = o.get("conditions", {})
-    refund = conditions.get("refund_before_departure")
-    change = conditions.get("change_before_departure")
+    conditions = _safe(o, "conditions", {})
+    refund = _safe(conditions, "refund_before_departure")
+    change = _safe(conditions, "change_before_departure")
 
     return FlightOffer(
         id=o["id"],
