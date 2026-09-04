@@ -1,0 +1,48 @@
+volumes:
+    langgraph-data:
+        driver: local
+
+services:
+    langgraph-redis:
+        image: redis:6
+        healthcheck:
+            test: redis-cli ping
+            interval: 5s
+            timeout: 1s
+            retries: 5
+        # No host port mapping — only langgraph-api needs to reach this,
+        # and it does so over the internal Docker network by service name.
+
+    langgraph-postgres:
+        image: postgres:16
+        environment:
+            POSTGRES_DB: postgres
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+        volumes:
+            - langgraph-data:/var/lib/postgresql/data
+        healthcheck:
+            test: pg_isready -U postgres
+            start_period: 10s
+            timeout: 1s
+            retries: 5
+            interval: 5s
+        # No host port mapping, same reasoning as redis above.
+        # If you need to inspect the DB directly from your host (e.g. psql, a GUI client),
+        # temporarily add back `ports: ["5432:5432"]` for that session and remove it after.
+
+    langgraph-api:
+        image: "travel-langchain:latest"  # match your `langgraph build -t` tag
+        ports:
+            - "8123:8000"
+        depends_on:
+            langgraph-redis:
+                condition: service_healthy
+            langgraph-postgres:
+                condition: service_healthy
+        env_file:
+            - .env
+        environment:
+            REDIS_URI: redis://langgraph-redis:6379
+            POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
+            LANGSMITH_TRACING: "true"
