@@ -1,4 +1,4 @@
-import { useTripThreadContext } from "../../context/TripThreadProvider";
+import { useTripThreadContext } from "../../hooks/useTripThreadContext";
 
 export function DestinationOrderReview() {
   const { interrupt, resume, isStreaming } = useTripThreadContext();

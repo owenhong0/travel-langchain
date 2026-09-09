@@ -1,24 +1,15 @@
-import { createContext, useContext, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { useTripThread } from "../hooks/useTripThread";
+import { TripThreadContext } from "./TripThreadContext";
 
-type TripThreadContextValue = ReturnType<typeof useTripThread>;
-
-const TripThreadContext = createContext<TripThreadContextValue | null>(null);
-
-export function TripThreadProvider({ children }: { children: ReactNode }) {
-  const { threadId: routeThreadId } = useParams<{ threadId: string }>();
-  const tripThread = useTripThread(routeThreadId);
+export function TripThreadProvider({ children }: { children: React.ReactNode }) {
+  const { threadId } = useParams<{ threadId: string }>();
+  const thread = useTripThread(threadId);
 
   return (
-    <TripThreadContext.Provider value={tripThread}>
+    <TripThreadContext.Provider value={thread}>
       {children}
     </TripThreadContext.Provider>
   );
 }
 
-export function useTripThreadContext(): TripThreadContextValue {
-  const ctx = useContext(TripThreadContext);
-  if (!ctx) throw new Error("useTripThreadContext must be used within a TripThreadProvider");
-  return ctx;
-}

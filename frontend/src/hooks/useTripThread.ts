@@ -1,100 +1,97 @@
-import {useCallback, useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {useNavigate} from "react-router-dom";
-import {client, ASSISTANT_ID} from "../lib/langgraphClient";
 import {ROUTE_FOR_INTERRUPT} from "../lib/interruptRoutes";
-import type {Interrupt, InitialTripState} from "../types/orchestrator";
+import type {InitialTripState, Interrupt} from "../types/orchestrator";
+import {useStream} from "@langchain/langgraph-sdk/react";
 
 export function useTripThread(existingThreadId?: string) {
-    const [threadId, setThreadId] = useState<string | null>(existingThreadId ?? null);
-    const [interrupt, setInterrupt] = useState<Interrupt | null>(null);
-    const [runComplete, setRunComplete] = useState(false);
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
+    const [currentThreadId, setCurrentThreadId] = useState<string | null>(existingThreadId || null);
 
-    const threadIdRef = useRef<string | null>(threadId);
-    useEffect(() => {
-        threadIdRef.current = threadId;
-    }, [threadId]);
+    const thread = useStream({
+        apiUrl: import.meta.env.VITE_LANGGRAPH_API_URL,
+        assistantId: "orchestrator",
+        threadId: existingThreadId,
+        onThreadId: (id) => setCurrentThreadId(id),
+    });
 
-    const consumeStream = useCallback(
-        async (tid: string, opts: { input?: InitialTripState; command?: { resume: string } }) => {
-            setIsStreaming(true);
-            setError(null);
-            try {
-                const stream = client.runs.stream(tid, ASSISTANT_ID, {
-                    input: opts.input,
-                    command: opts.command,
-                    streamMode: "values",
-                });
-
-                let sawInterrupt = false;
-                for await (const chunk of stream) {
-                    if (chunk.event === "values") {
-                        const data = chunk.data as Record<string, unknown>;
-                        const pending = data.__interrupt__ as { value: Interrupt }[] | undefined;
-                        if (pending && pending.length > 0) {
-                            sawInterrupt = true;
-                            setInterrupt(pending[0].value);
-                        }
-                    }
-                }
-                if (!sawInterrupt) {
-                    setInterrupt(null);
-                    setRunComplete(true);
-                }
-            } catch (err) {
-                setError(err instanceof Error ? err.message : "Stream failed");
-            } finally {
-                setIsStreaming(false);
-            }
-        },
-        []
-    );
-
-    // Rehydrate on direct URL load / refresh — the backend's state is the source of truth
-    // hooks/useTripThread.ts — inside the rehydrate useEffect
-    useEffect(() => {
-        if (existingThreadId && !interrupt && !runComplete) {
-            client.threads.getState(existingThreadId).then((state) => {
-                const pending = state.tasks?.[0]?.interrupts as { value: Interrupt }[] | undefined;
-                if (pending && pending.length > 0) {
-                    setInterrupt(pending[0].value);
-                } else if (state.next.length === 0) {
-                    setRunComplete(true);
-                }
-            });
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [existingThreadId]);
+    // Use SDK's built-in state management:
+    // thread.messages       -> array, updates live as tokens stream in
+    // thread.isLoading      -> true while a run is active
+    // thread.interrupt      -> the current interrupt payload, if any
+    // thread.submit(input)  -> kicks off a new run
+    // thread.error          -> any streaming errors
 
     const start = useCallback(
         async (initialState: InitialTripState) => {
-            const thread = await client.threads.create();
-            setThreadId(thread.thread_id);
-            await consumeStream(thread.thread_id, {input: initialState});
+            await thread.submit(initialState);
+            // After submission, we need to track the thread ID for navigation
+            // The SDK will create a thread internally if none exists
         },
-        [consumeStream]
+        [thread]
     );
 
     const resume = useCallback(
-        async (value: string) => {
-            const tid = threadIdRef.current;
-            if (!tid) throw new Error("No active thread to resume");
-            setInterrupt(null);
-            await consumeStream(tid, {command: {resume: value}});
+        async (value: string | object) => {
+            console.log('[useTripThread] Resuming with value:', value);
+            await thread.submit(undefined, {command: {resume: value}});
         },
-        [consumeStream]
+        [thread]
     );
 
+    // Handle navigation based on interrupt state
     useEffect(() => {
-        if (!threadId) return;
-        if (interrupt) {
-            navigate(`/trip/${threadId}/${ROUTE_FOR_INTERRUPT[interrupt.type]}`);
-        } else if (runComplete) {
-            navigate(`/trip/${threadId}/summary`);
+        // Only navigate if we have a thread ID to work with
+        if (!currentThreadId && !existingThreadId) {
+            console.log('[useTripThread] No thread ID available, skipping navigation');
+            return;
         }
-    }, [interrupt, runComplete, threadId, navigate]);
 
-    return {threadId, interrupt, runComplete, isStreaming, error, start, resume};
+        const threadIdToUse = currentThreadId || existingThreadId;
+        console.log('[useTripThread] Navigation check:', {
+            threadId: threadIdToUse,
+            hasInterrupt: !!thread.interrupt,
+            interruptType: thread.interrupt?.value?.type,
+            isLoading: thread.isLoading,
+            messageCount: thread.messages.length
+        });
+
+        if (thread.interrupt && thread.interrupt.value) {
+            const interruptValue = thread.interrupt.value as Interrupt;
+            const interruptType = interruptValue.type;
+            const route = ROUTE_FOR_INTERRUPT[interruptType as keyof typeof ROUTE_FOR_INTERRUPT];
+            console.log('[useTripThread] Interrupt detected:', { interruptType, route });
+            if (route && threadIdToUse) {
+                const targetPath = `/trip/${threadIdToUse}/${route}`;
+                console.log('[useTripThread] Navigating to:', targetPath);
+                navigate(targetPath);
+            }
+        } else if (!thread.isLoading && thread.messages.length > 0) {
+            // Run is complete (not loading and has messages but no interrupt)
+            if (threadIdToUse) {
+                const targetPath = `/trip/${threadIdToUse}/summary`;
+                console.log('[useTripThread] Run complete, navigating to:', targetPath);
+                navigate(targetPath);
+            }
+        }
+    }, [thread.interrupt, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
+
+    // Extract error message safely
+    const errorMessage = thread.error ?
+        (typeof thread.error === 'string' ? thread.error :
+            typeof thread.error === 'object' && thread.error && 'message' in thread.error ?
+                String(thread.error.message) : 'An error occurred') : null;
+
+    return {
+    threadId: currentThreadId || existingThreadId || null,
+    interrupt: thread.interrupt?.value as Interrupt | undefined,
+    values: thread.values,   // <-- add this: gives interrupt components read access to graph state
+    runComplete: !thread.isLoading && thread.messages.length > 0 && !thread.interrupt,
+    isStreaming: thread.isLoading,
+    error: errorMessage,
+    messages: thread.messages,
+    start,
+    resume,
+    setThreadId: setCurrentThreadId
+};
 }
