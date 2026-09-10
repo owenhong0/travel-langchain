@@ -8,5 +8,6 @@ export const ROUTE_FOR_INTERRUPT: Record<Interrupt["type"], string> = {
   loyalty_programmes_request: "loyalty",
   home_context_request: "home-context",
   transport_mode_review: "transport",
+  stay_type_review: "stays/types",
   stay_review: "stays",
 };

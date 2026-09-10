@@ -17,6 +17,11 @@ export interface TransportLeg {
   modes_requested: string[];
 }
 
+export interface StayLeg {
+  city: string;
+  stay_type?: string;
+}
+
 export interface StayOption {
   type: string;
   brand_classification: string;
@@ -36,12 +41,15 @@ export type Interrupt =
   | { type: "loyalty_programmes_request"; message: string }
   | { type: "home_context_request"; message: string; first_stop: string; last_stop: string }
   | { type: "transport_mode_review"; legs: TransportLeg[] }
+  | { type: "stay_type_review"; message: string; stay_legs: unknown[] }
   | { type: "stay_review"; message: string; recommendation_reasoning?: string; options: StayOption[] };
 
 // Subset of OrchestratorState needed to kick off a run (mirrors INITIAL_STATE)
 // src/types/orchestrator.ts
 export interface InitialTripState {
   [key: string]: unknown; // lets this satisfy the SDK's Record<string, unknown> input type
+  
+  // trip_info_graph fields
   trip_preferences: string;
   max_analysts: number;
   analysts: string[];
@@ -49,11 +57,28 @@ export interface InitialTripState {
   human_analyst_feedback: string;
   destination_candidates: unknown[];
   finalized_destinations: unknown[];
+  review_decision: string | null;
   ordered_destinations: OrderedDestination[];
+  order_decision: string | null;
+  order_feedback: string | null;
+  trip_start_date: string | null;
+  trip_end_date: string | null;
   dated_itinerary: DatedLeg[];
+  date_decision: string | null;
+  date_feedback: string | null;
+  
+  // bridge node
   loyalty_programmes: string[];
+  
+  // leg_transportation_graph fields
+  home_city: string;
+  home_country: string;
+  return_city: string;
+  return_country: string;
   legs: TransportLeg[];
   finalized_legs: unknown[];
+  
+  // lodging_graph fields
   stay_legs: unknown[];
   finalized_stays: unknown[];
 }
