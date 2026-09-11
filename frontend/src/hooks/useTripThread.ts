@@ -13,6 +13,7 @@ export function useTripThread(existingThreadId?: string) {
         assistantId: "orchestrator",
         threadId: existingThreadId,
         onThreadId: (id) => setCurrentThreadId(id),
+        fetchStateHistory: true,
     });
 
     // Use SDK's built-in state management:
@@ -20,13 +21,12 @@ export function useTripThread(existingThreadId?: string) {
     // thread.isLoading      -> true while a run is active
     // thread.interrupt      -> the current interrupt payload, if any
     // thread.submit(input)  -> kicks off a new run
+    // thread.history        -> ThreadState[], full checkpoint list for this thread
     // thread.error          -> any streaming errors
 
     const start = useCallback(
         async (initialState: InitialTripState) => {
             await thread.submit(initialState);
-            // After submission, we need to track the thread ID for navigation
-            // The SDK will create a thread internally if none exists
         },
         [thread]
     );
@@ -39,9 +39,19 @@ export function useTripThread(existingThreadId?: string) {
         [thread]
     );
 
+    const forkFrom = useCallback(
+        async (checkpointId: string, value: string | object) => {
+            console.log('[useTripThread] Forking from checkpoint:', checkpointId, 'with value:', value);
+            await thread.submit(undefined, {
+                command: {resume: value},
+                checkpoint: {checkpoint_id: checkpointId, checkpoint_ns: "", checkpoint_map: undefined},
+            });
+        },
+        [thread]
+    );
+
     // Handle navigation based on interrupt state
     useEffect(() => {
-        // Only navigate if we have a thread ID to work with
         if (!currentThreadId && !existingThreadId) {
             console.log('[useTripThread] No thread ID available, skipping navigation');
             return;
@@ -67,31 +77,31 @@ export function useTripThread(existingThreadId?: string) {
                 navigate(targetPath);
             }
         } else if (!thread.isLoading && thread.messages.length > 0) {
-            // Run is complete (not loading and has messages but no interrupt)
             if (threadIdToUse) {
                 const targetPath = `/trip/${threadIdToUse}/summary`;
                 console.log('[useTripThread] Run complete, navigating to:', targetPath);
                 navigate(targetPath);
             }
         }
-    }, [thread.interrupt, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
+    }, [thread.interrupt?.id, thread.interrupt?.value?.type, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
 
-    // Extract error message safely
     const errorMessage = thread.error ?
         (typeof thread.error === 'string' ? thread.error :
             typeof thread.error === 'object' && thread.error && 'message' in thread.error ?
                 String(thread.error.message) : 'An error occurred') : null;
 
     return {
-    threadId: currentThreadId || existingThreadId || null,
-    interrupt: thread.interrupt?.value as Interrupt | undefined,
-    values: thread.values,   // <-- add this: gives interrupt components read access to graph state
-    runComplete: !thread.isLoading && thread.messages.length > 0 && !thread.interrupt,
-    isStreaming: thread.isLoading,
-    error: errorMessage,
-    messages: thread.messages,
-    start,
-    resume,
-    setThreadId: setCurrentThreadId
-};
+        threadId: currentThreadId || existingThreadId || null,
+        interrupt: thread.interrupt?.value as Interrupt | undefined,
+        values: thread.values,
+        history: thread.history,
+        runComplete: !thread.isLoading && thread.messages.length > 0 && !thread.interrupt,
+        isStreaming: thread.isLoading,
+        error: errorMessage,
+        messages: thread.messages,
+        start,
+        resume,
+        forkFrom,
+        setThreadId: setCurrentThreadId
+    };
 }

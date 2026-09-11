@@ -2,7 +2,8 @@ import type { Interrupt } from "../types/orchestrator";
 
 export const ROUTE_FOR_INTERRUPT: Record<Interrupt["type"], string> = {
   human_feedback: "analysts",
-  order_review: "destinations",
+  review_destinations: "destinations/review",
+  order_review: "destinations/order",
   start_date_request: "dates/range",
   date_review: "dates/review",
   loyalty_programmes_request: "loyalty",
