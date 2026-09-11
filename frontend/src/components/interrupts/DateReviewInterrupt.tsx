@@ -1,17 +1,22 @@
 // src/components/interrupts/DateReviewInterrupt.tsx  (route: dates/review)
-import { useTripThreadContext } from "../../hooks/useTripThreadContext";
+import { useReviewInterrupt } from "../../hooks/useReviewInterrupt";
 import { ReviewShell } from "./ReviewShell";
 import { UnknownInterruptFallback } from "./UnknownInterruptFallback";
+import { HistoricalBanner } from "../HistoricalBanner";
+import type {DatedLeg} from "../../types/orchestrator.ts";
 
 export function DateReviewInterrupt() {
-    const { interrupt, values, resume, isStreaming } = useTripThreadContext();
-    if (interrupt?.type !== "date_review") return <UnknownInterruptFallback />;
-    const itinerary = values?.dated_itinerary ?? [];
+    const { interrupt, values, isLive, isStreaming, submit } = useReviewInterrupt("date_review");
+    if (!interrupt) return <UnknownInterruptFallback />;
+    const itinerary: DatedLeg[] = values?.dated_itinerary ?? [];
 
     return (
-        <ReviewShell title="Review your dated itinerary" isStreaming={isStreaming}
-            onApprove={() => resume("approve")} onRequestChanges={(fb) => resume(fb)}>
-            <ol>{itinerary.map((stop, i) => <li key={i}><strong>{stop.date}</strong> — {stop.city}</li>)}</ol>
-        </ReviewShell>
+        <>
+            {!isLive && <HistoricalBanner />}
+            <ReviewShell title="Review your dated itinerary" isStreaming={isStreaming}
+                onApprove={() => submit("approve")} onRequestChanges={(fb) => submit(fb)}>
+                <ol>{itinerary.map((stop, i) => <li key={i}><strong>{stop.date}</strong> — {stop.city}</li>)}</ol>
+            </ReviewShell>
+        </>
     );
 }

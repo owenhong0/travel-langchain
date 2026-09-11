@@ -1,0 +1,647 @@
+/* src/components/TripLayout.css */
+.trip-layout {
+    display: flex;
+    height: 100vh;
+    background: #f8f9fa;
+}
+
+.trip-sidebar {
+    width: 280px;
+    background: #ffffff;
+    border-right: 1px solid #e1e5e9;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.trip-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    background: #ffffff;
+    margin: 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* ReviewTimeline styling - LangSmith Studio inspired */
+.review-timeline {
+    padding: 20px 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.timeline-header {
+    margin-bottom: 20px;
+}
+
+.timeline-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.timeline-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.streaming-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #3b82f6;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.status-text {
+    font-size: 11px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.timeline-steps {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.timeline-step {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    padding: 0;
+    margin-bottom: 2px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    border-radius: 6px;
+}
+
+.timeline-step:hover {
+    background: #f8fafc;
+}
+
+.timeline-step--active {
+    background: #eff6ff;
+}
+
+.timeline-step--head {
+    background: #f0fdf4;
+}
+
+.timeline-step--head.timeline-step--active {
+    background: #dcfce7;
+}
+
+.step-indicator {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-right: 12px;
+    padding: 12px 0;
+}
+
+.step-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #d1d5db;
+    border: 2px solid #ffffff;
+    box-shadow: 0 0 0 1px #e5e7eb;
+    transition: all 0.15s ease;
+    z-index: 2;
+}
+
+.timeline-step--completed .step-dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 1px #22c55e;
+}
+
+.timeline-step--current .step-dot {
+    background: #3b82f6;
+    box-shadow: 0 0 0 1px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.timeline-step--active .step-dot {
+    transform: scale(1.2);
+}
+
+.step-connector {
+    position: absolute;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: calc(100% + 2px);
+    background: #e5e7eb;
+    z-index: 1;
+}
+
+.timeline-step--completed .step-connector {
+    background: #d1fae5;
+}
+
+.step-content {
+    flex: 1;
+    padding: 12px 12px 12px 0;
+    min-width: 0;
+}
+
+.step-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    line-height: 1.4;
+    margin-bottom: 2px;
+}
+
+.timeline-step--active .step-label {
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+.timeline-step--head .step-label {
+    color: #15803d;
+}
+
+.step-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    margin-top: 4px;
+}
+
+.step-timestamp {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-top: 2px;
+}
+
+.timeline-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    color: #9ca3af;
+    font-size: 13px;
+    text-align: center;
+}
+
+.timeline-empty p {
+    margin: 0;
+}
+
+/* Interrupt component styling */
+.destinations-review,
+.stays-review,
+.transport-review {
+    max-width: none;
+}
+
+.review-message {
+    font-size: 14px;
+    color: #6b7280;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.recommendation-reasoning {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.recommendation-reasoning h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.recommendation-reasoning p {
+    margin: 0;
+    font-size: 13px;
+    color: #6b7280;
+    line-height: 1.5;
+}
+
+/* Destination cards */
+.destinations-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.destination-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.15s ease;
+}
+
+.destination-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.destination-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.destination-title {
+    font-size: 15px;
+    color: #111827;
+    margin: 0;
+}
+
+.flight-indicator {
+    font-size: 14px;
+    margin-left: 8px;
+}
+
+.destination-details {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.destination-season,
+.destination-duration,
+.destination-date {
+    font-size: 12px;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.destination-rationale {
+    font-size: 13px;
+    color: #4b5563;
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* Stay option cards */
+.options-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.stay-option-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.15s ease;
+}
+
+.stay-option-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.stay-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.stay-title-section {
+    flex: 1;
+}
+
+.stay-name {
+    font-size: 15px;
+    color: #111827;
+    margin: 0 0 6px 0;
+    display: block;
+}
+
+.stay-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.brand-badge {
+    font-size: 10px;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: capitalize;
+    font-weight: 500;
+}
+
+.confidence-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+.confidence-date_verified {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.confidence-corroborated {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.confidence-unverified {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.stay-price {
+    font-size: 14px;
+    font-weight: 600;
+    color: #059669;
+    text-align: right;
+}
+
+.price-type {
+    font-size: 11px;
+    font-weight: 400;
+    color: #6b7280;
+}
+
+.stay-details {
+    border-top: 1px solid #f3f4f6;
+    padding-top: 12px;
+}
+
+.stay-info-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.stay-type,
+.stay-area,
+.stay-rating {
+    font-size: 12px;
+    color: #6b7280;
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.price-note {
+    font-size: 12px;
+    color: #6b7280;
+    margin: 8px 0 0 0;
+    font-style: italic;
+}
+
+.booking-link {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #3b82f6;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.booking-link:hover {
+    text-decoration: underline;
+}
+
+/* Stay leg sections */
+.stay-leg {
+    margin-bottom: 24px;
+}
+
+.stay-leg-section {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.leg-title {
+    margin: 0 0 6px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.leg-dates {
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
+.requested-types,
+.loyalty-programs {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+/* Transport leg cards */
+.legs-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.transport-leg-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: all 0.15s ease;
+}
+
+.transport-leg-card:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.leg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.leg-route {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.leg-type-icon {
+    font-size: 18px;
+}
+
+.route-info {
+    flex: 1;
+}
+
+.route-cities {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.origin-city,
+.destination-city {
+    font-size: 14px;
+    font-weight: 500;
+    color: #111827;
+}
+
+.route-arrow {
+    color: #6b7280;
+    font-weight: 400;
+}
+
+.country-info {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.leg-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.leg-type-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.leg-type-arrival {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.leg-type-departure {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.leg-type-internal {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.flight-ferry-badge {
+    font-size: 12px;
+}
+
+.leg-details {
+    border-top: 1px solid #f3f4f6;
+    padding-top: 12px;
+}
+
+.leg-info-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.depart-date,
+.distance {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.requested-modes {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.no-legs-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: #9ca3af;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+    .trip-sidebar {
+        width: 240px;
+    }
+}
+
+@media (max-width: 768px) {
+    .trip-layout {
+        flex-direction: column;
+    }
+    
+    .trip-sidebar {
+        width: 100%;
+        height: auto;
+        max-height: 200px;
+        border-right: none;
+        border-bottom: 1px solid #e1e5e9;
+    }
+    
+    .trip-content {
+        margin: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .destination-header,
+    .stay-header,
+    .leg-header {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .destination-details,
+    .stay-info-row,
+    .leg-info-row {
+        flex-direction: column;
+        gap: 4px;
+    }
+}
