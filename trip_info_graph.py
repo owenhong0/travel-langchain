@@ -145,6 +145,10 @@ class DestinationInterviewState(MessagesState):
     sections: list
 
 
+def merge_wizard_progress(existing: dict, new: dict) -> dict:
+    """Custom merge reducer for wizard_progress - shallow merge of step keys"""
+    return {**existing, **new}
+
 class DestinationResearchState(TypedDict):
     trip_preferences: str
     max_analysts: int
@@ -164,6 +168,7 @@ class DestinationResearchState(TypedDict):
     dated_itinerary: list[dict]  # ordered_destinations + concrete depart/return per stop
     date_decision: str
     date_feedback: Optional[str]
+    wizard_progress: Annotated[dict, merge_wizard_progress]
 
 
 class DatedStop(BaseModel):
@@ -381,7 +386,10 @@ def human_feedback(state: DestinationResearchState):
                    "or give feedback to revise the panel.",
         "analysts": [an.persona for an in state["analysts"]],
     })
-    return {"human_analyst_feedback": h_feedback}
+    return {
+        "human_analyst_feedback": h_feedback,
+        "wizard_progress": {"human_feedback": h_feedback}
+    }
 
 
 question_instructions = """You are {persona_name}, a travel analyst focused on: {focus_area}
@@ -579,7 +587,11 @@ def review_destinations(state: DestinationResearchState):
     response = raw_response if isinstance(raw_response, dict) else parse_review_response(raw_response, candidates)
 
     if response["type"] == "finalize":
-        return {"finalized_destinations": response["chosen"], "review_decision": "finalize"}
+        return {
+            "finalized_destinations": response["chosen"], 
+            "review_decision": "finalize",
+            "wizard_progress": {"review_destinations": raw_response}
+        }
     elif response["type"] == "revise":
         updated_preferences = (
                 state["trip_preferences"]
@@ -589,6 +601,7 @@ def review_destinations(state: DestinationResearchState):
             "trip_preferences": updated_preferences,
             "analysts": [], "sections": [], "destination_candidates": [],
             "review_decision": "revise",
+            "wizard_progress": {"review_destinations": raw_response}
         }
     else:
         raise ValueError(f"Unknown response type: {response['type']}")
@@ -704,12 +717,23 @@ def review_order(state: DestinationResearchState):
     response = parse_order_response(raw, stops) if isinstance(raw, str) else raw
 
     if response["type"] == "finalize":
-        return {"order_decision": "finalize"}
+        return {
+            "order_decision": "finalize",
+            "wizard_progress": {"order_review": raw}
+        }
     elif response["type"] == "drop":
         remaining = [s for i, s in enumerate(stops) if i not in response["drop_indices"]]
-        return {"ordered_destinations": remaining, "order_decision": "finalize"}
+        return {
+            "ordered_destinations": remaining, 
+            "order_decision": "finalize",
+            "wizard_progress": {"order_review": raw}
+        }
     else:
-        return {"order_feedback": response["feedback"], "order_decision": "revise"}
+        return {
+            "order_feedback": response["feedback"], 
+            "order_decision": "revise",
+            "wizard_progress": {"order_review": raw}
+        }
 
 
 def route_after_order_review(state: DestinationResearchState):
@@ -728,7 +752,11 @@ def request_start_date(state: DestinationResearchState):
                          else (raw.get("start_date", ""), None, raw.get("end_date", "")))
         start, end = start.strip(), end.strip()
         if start and end:
-            return {"trip_start_date": start, "trip_end_date": end}
+            return {
+                "trip_start_date": start, 
+                "trip_end_date": end,
+                "wizard_progress": {"start_date_request": raw}
+            }
         # loop repeats, interrupt fires again with the same message
 
 
@@ -784,9 +812,16 @@ def review_dates(state: DestinationResearchState):
     })
     text = raw.strip() if isinstance(raw, str) else None
     if text is not None and text.lower() in APPROVE_SIGNALS:
-        return {"date_decision": "finalize"}
+        return {
+            "date_decision": "finalize",
+            "wizard_progress": {"date_review": raw}
+        }
     feedback = text if text is not None else raw.get("feedback", "")
-    return {"date_feedback": feedback, "date_decision": "revise"}
+    return {
+        "date_feedback": feedback, 
+        "date_decision": "revise",
+        "wizard_progress": {"date_review": raw}
+    }
 
 
 def route_after_date_review(state: DestinationResearchState):

@@ -1,7 +1,7 @@
 # trip_orchestrator.py
 import json
 import operator
-from typing import Annotated, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict, Any
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.constants import END, START
@@ -11,6 +11,11 @@ from langgraph.types import Command, interrupt
 from trip_info_graph import destination_graph, APPROVE_SIGNALS
 from leg_transportation_graph import transport_graph
 from lodging_graph import lodging_graph
+
+
+def merge_step_data(existing: dict, new: dict) -> dict:
+    """Custom merge reducer for wizard_progress - shallow merge of step keys"""
+    return {**existing, **new}
 
 # ---------- Unified state ----------
 # Superset of DestinationResearchState + TransportPlanningState + LodgingPlanningState.
@@ -53,6 +58,9 @@ class OrchestratorState(TypedDict):
     stay_legs: list[dict]
     finalized_stays: Annotated[list[dict], operator.add]
 
+    # --- wizard progress accumulator ---
+    wizard_progress: Annotated[dict[str, Any], merge_step_data]
+
 
 # ---------- Bridge node ----------
 
@@ -66,8 +74,14 @@ def collect_loyalty_programmes(state: OrchestratorState):
                    "'Marriott Bonvoy, Hyatt'), or 'skip' for none.",
     })
     if raw.strip().lower() in APPROVE_SIGNALS or raw.strip().lower() == "skip":
-        return {"loyalty_programmes": []}
-    return {"loyalty_programmes": [p.strip() for p in raw.split(",") if p.strip()]}
+        return {
+            "loyalty_programmes": [],
+            "wizard_progress": {"loyalty_programmes_request": raw}
+        }
+    return {
+        "loyalty_programmes": [p.strip() for p in raw.split(",") if p.strip()],
+        "wizard_progress": {"loyalty_programmes_request": raw}
+    }
 
 
 # ---------- Graph wiring ----------

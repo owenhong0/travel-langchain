@@ -1,5 +1,6 @@
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useTripThreadContext } from "../hooks/useTripThreadContext.ts";
+import { useInterruptHistory } from "../hooks/useInterruptHistory.ts";
 import type { Interrupt } from "../types/orchestrator.ts";
 import { ROUTE_FOR_INTERRUPT } from "../lib/interruptRoutes.ts";
 
@@ -33,67 +34,54 @@ const INTERRUPT_LABELS: Record<Interrupt["type"], string> = {
 };
 
 export function ReviewTimeline() {
-  const { history, isStreaming } = useTripThreadContext();
+  const { history, isStreaming, interrupt } = useTripThreadContext();
   const { threadId } = useParams<{ threadId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const currentViewingId = (location.state as LocationState | null)?.viewingCheckpointId;
 
-  // Filter and process timeline steps with better typing
-  const reviewStages = (history ?? []).filter((snap) =>
-    snap.tasks.some((task) =>
-      task.interrupts.some((interrupt) => {
-        const interruptValue = interrupt.value as Interrupt | undefined;
-        return interruptValue?.type !== undefined && interruptValue.type in ROUTE_FOR_INTERRUPT;
-      })
-    )
-  );
-
+  // Use local interrupt history instead of thread.history
+  const interruptHistory = useInterruptHistory(interrupt, history);
+  
   const headCheckpointId = history?.[0]?.checkpoint?.checkpoint_id;
+  const currentInterruptType = interrupt?.type;
 
-  // Create timeline steps with proper typing
-  const timelineSteps: TimelineStep[] = [...reviewStages]
-    .reverse()
-    .map((snap) => {
-      const checkpointId = snap.checkpoint?.checkpoint_id;
-      const interruptValue = snap.tasks[0]?.interrupts[0]?.value as Interrupt | undefined;
-      const type = interruptValue?.type;
-      
-      if (!type || !checkpointId || !(type in ROUTE_FOR_INTERRUPT)) {
-        return null;
-      }
+  // Create timeline steps from local interrupt history
+  const timelineSteps: TimelineStep[] = interruptHistory.map((entry, index) => {
+    const isHead = entry.type === currentInterruptType;
+    const isActive = isHead ? !currentViewingId : entry.rootCheckpointId === currentViewingId;
+    
+    // Determine status based on position and state
+    let status: TimelineStep["status"];
+    if (isHead && isStreaming) {
+      status = "current";
+    } else if (isHead) {
+      status = "completed";
+    } else {
+      status = "completed";
+    }
 
-      const route = ROUTE_FOR_INTERRUPT[type];
-      const isHead = checkpointId === headCheckpointId;
-      const isActive = isHead ? !currentViewingId : checkpointId === currentViewingId;
-      
-      // Determine status based on position and state
-      let status: TimelineStep["status"];
-      if (isHead && isStreaming) {
-        status = "current";
-      } else if (isHead) {
-        status = "completed";
-      } else {
-        status = "completed";
-      }
-
-      return {
-        checkpointId,
-        type,
-        route,
-        isHead,
-        isActive,
-        timestamp: snap.created_at,
-        status,
-      };
-    })
-    .filter((step): step is TimelineStep => step !== null);
+    return {
+      checkpointId: entry.rootCheckpointId || headCheckpointId || "",
+      type: entry.type,
+      route: entry.route,
+      isHead,
+      isActive,
+      timestamp: entry.timestamp,
+      status,
+    };
+  });
 
   const handleStepClick = (step: TimelineStep) => {
     if (!threadId) return;
     
+    // For historical steps (not the current head), we need to pass both checkpoint ID and interrupt type
+    // since all interior interrupts share the same checkpoint ID
     navigate(`/trip/${threadId}/${step.route}`, {
-      state: step.isHead ? undefined : { viewingCheckpointId: step.checkpointId },
+      state: step.isHead ? undefined : { 
+        viewingCheckpointId: step.checkpointId,
+        viewingInterruptType: step.type 
+      },
     });
   };
 
@@ -112,7 +100,7 @@ export function ReviewTimeline() {
       <div className="timeline-steps">
         {timelineSteps.map((step, index) => (
           <button
-            key={step.checkpointId}
+            key={`${step.checkpointId}-${step.type}-${index}`}
             type="button"
             className={[
               "timeline-step",

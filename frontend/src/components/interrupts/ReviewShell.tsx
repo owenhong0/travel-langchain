@@ -1,5 +1,6 @@
 // src/components/interrupts/ReviewShell.tsx
 import { type ReactNode, useState } from "react";
+import { ProcessingState } from "../ProcessingState";
 
 type ReviewShellProps = {
     title: string;
@@ -7,10 +8,22 @@ type ReviewShellProps = {
     onApprove: () => void;
     onRequestChanges: (feedback: string) => void;
     isStreaming: boolean;
+    isProcessing?: boolean;
 };
 
-export function ReviewShell({ title, children, onApprove, onRequestChanges, isStreaming }: ReviewShellProps) {
+export function ReviewShell({ title, children, onApprove, onRequestChanges, isStreaming, isProcessing }: ReviewShellProps) {
     const [feedback, setFeedback] = useState("");
+    
+    // Show processing state when streaming or processing
+    if (isStreaming || isProcessing) {
+        return (
+            <section>
+                <h1>{title}</h1>
+                <ProcessingState />
+            </section>
+        );
+    }
+    
     return (
         <section>
             <h1>{title}</h1>

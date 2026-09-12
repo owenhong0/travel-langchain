@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useState, useRef} from "react";
 import {useNavigate} from "react-router-dom";
 import {ROUTE_FOR_INTERRUPT} from "../lib/interruptRoutes";
 import type {InitialTripState, Interrupt} from "../types/orchestrator";
@@ -7,6 +7,7 @@ import {useStream} from "@langchain/langgraph-sdk/react";
 export function useTripThread(existingThreadId?: string) {
     const navigate = useNavigate();
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(existingThreadId || null);
+    const lastInterruptIdRef = useRef<string | undefined>(null);
 
     const thread = useStream({
         apiUrl: import.meta.env.VITE_LANGGRAPH_API_URL,
@@ -50,7 +51,7 @@ export function useTripThread(existingThreadId?: string) {
         [thread]
     );
 
-    // Handle navigation based on interrupt state
+    // Handle navigation based on interrupt state - only navigate for NEW interrupts
     useEffect(() => {
         if (!currentThreadId && !existingThreadId) {
             console.log('[useTripThread] No thread ID available, skipping navigation');
@@ -58,32 +59,47 @@ export function useTripThread(existingThreadId?: string) {
         }
 
         const threadIdToUse = currentThreadId || existingThreadId;
+        const currentInterruptId = thread.interrupt?.id;
+
         console.log('[useTripThread] Navigation check:', {
             threadId: threadIdToUse,
             hasInterrupt: !!thread.interrupt,
-            interruptType: thread.interrupt?.value?.type,
+            interruptId: currentInterruptId,
+            lastInterruptId: lastInterruptIdRef.current,
+            interruptType: thread.interrupt?.value ? (thread.interrupt.value as Interrupt).type : undefined,
             isLoading: thread.isLoading,
             messageCount: thread.messages.length
         });
 
-        if (thread.interrupt && thread.interrupt.value) {
+        // Only navigate if this is a NEW interrupt (different ID from last seen)
+        if (thread.interrupt && thread.interrupt.value && currentInterruptId !== lastInterruptIdRef.current) {
             const interruptValue = thread.interrupt.value as Interrupt;
             const interruptType = interruptValue.type;
             const route = ROUTE_FOR_INTERRUPT[interruptType as keyof typeof ROUTE_FOR_INTERRUPT];
-            console.log('[useTripThread] Interrupt detected:', { interruptType, route });
+
+            console.log('[useTripThread] NEW interrupt detected:', {
+                interruptId: currentInterruptId,
+                interruptType,
+                route,
+                previousId: lastInterruptIdRef.current
+            });
+
             if (route && threadIdToUse) {
                 const targetPath = `/trip/${threadIdToUse}/${route}`;
-                console.log('[useTripThread] Navigating to:', targetPath);
+                console.log('[useTripThread] Navigating to NEW interrupt:', targetPath);
                 navigate(targetPath);
+                lastInterruptIdRef.current = currentInterruptId;
             }
-        } else if (!thread.isLoading && thread.messages.length > 0) {
+        } else if (!thread.isLoading && thread.messages.length > 0 && !thread.interrupt) {
+            // Only navigate to summary if we're not viewing a historical interrupt
             if (threadIdToUse) {
                 const targetPath = `/trip/${threadIdToUse}/summary`;
                 console.log('[useTripThread] Run complete, navigating to:', targetPath);
                 navigate(targetPath);
+                lastInterruptIdRef.current = null; // Reset for next run
             }
         }
-    }, [thread.interrupt?.id, thread.interrupt?.value?.type, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
+    }, [thread.interrupt?.id, thread.interrupt?.value, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
 
     const errorMessage = thread.error ?
         (typeof thread.error === 'string' ? thread.error :

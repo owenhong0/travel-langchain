@@ -328,7 +328,10 @@ def classify_stay_types(state: LodgingPlanningState):
     })
     legs = state["stay_legs"] if raw.strip().lower() in APPROVE_SIGNALS else _apply_type_overrides(state["stay_legs"],
                                                                                                    raw)
-    return {"stay_legs": legs}
+    return {
+        "stay_legs": legs,
+        "wizard_progress": {"stay_type_review": raw}
+    }
 
 
 def fan_out_stays(state: LodgingPlanningState):
@@ -851,8 +854,16 @@ def review_stay(state: StayLegState):
             "options": [],
         })
         if raw.strip().lower() == "skip":
-            return {"selected": None, "review_decision": "finalize"}
-        return {"review_feedback": raw, "review_decision": "revise"}
+            return {
+                "selected": None, 
+                "review_decision": "finalize",
+                "wizard_progress": {"stay_review": raw}
+            }
+        return {
+            "review_feedback": raw, 
+            "review_decision": "revise",
+            "wizard_progress": {"stay_review": raw}
+        }
 
     raw = interrupt({
         "type": "stay_review",
@@ -862,10 +873,22 @@ def review_stay(state: StayLegState):
         "options": state["options"],
     })
     if raw.strip().lower() in APPROVE_SIGNALS:
-        return {"selected": state["options"][0], "review_decision": "finalize"}
+        return {
+            "selected": state["options"][0], 
+            "review_decision": "finalize",
+            "wizard_progress": {"stay_review": raw}
+        }
     if raw.strip().isdigit() and int(raw) < len(state["options"]):
-        return {"selected": state["options"][int(raw)], "review_decision": "finalize"}
-    return {"review_feedback": raw, "review_decision": "revise"}
+        return {
+            "selected": state["options"][int(raw)], 
+            "review_decision": "finalize",
+            "wizard_progress": {"stay_review": raw}
+        }
+    return {
+        "review_feedback": raw, 
+        "review_decision": "revise",
+        "wizard_progress": {"stay_review": raw}
+    }
 
 
 def route_stay_review(state: StayLegState):
