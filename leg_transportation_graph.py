@@ -192,8 +192,7 @@ def classify_leg_modes(state: TransportPlanningState):
     })
     legs = annotated if raw.strip().lower() in APPROVE_SIGNALS else _apply_mode_overrides(annotated, raw)
     return {
-        "legs": legs,
-        "wizard_progress": {"transport_mode_review": raw}
+        "legs": legs
     }
 
 def request_home_context(state: TransportPlanningState):
@@ -213,7 +212,6 @@ def request_home_context(state: TransportPlanningState):
         "home_country": duffel_city_country(home_city) or "",
         "return_city": return_city,
         "return_country": duffel_city_country(return_city) or "",
-        "wizard_progress": {"home_context_request": raw}
     }
 
 def _apply_mode_overrides(suggestions: list[dict], raw: str) -> list[dict]:
@@ -819,12 +817,10 @@ def review_leg_transport(state: LegTransportState):
             return {
                 "selected": None, 
                 "review_decision": "finalize",
-                "wizard_progress": {"leg_transport_review": raw}
             }
         return {
             "review_feedback": raw, 
             "review_decision": "revise",
-            "wizard_progress": {"leg_transport_review": raw}
         }
 
     raw = interrupt({
@@ -838,18 +834,15 @@ def review_leg_transport(state: LegTransportState):
         return {
             "selected": state["options"][0], 
             "review_decision": "finalize",
-            "wizard_progress": {"leg_transport_review": raw}
         }
     if raw.strip().isdigit() and int(raw) < len(state["options"]):
         return {
             "selected": state["options"][int(raw)], 
             "review_decision": "finalize",
-            "wizard_progress": {"leg_transport_review": raw}
         }
     return {
         "review_feedback": raw, 
         "review_decision": "revise",
-        "wizard_progress": {"leg_transport_review": raw}
     }
 
 def route_leg_review(state: LegTransportState):

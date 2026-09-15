@@ -330,7 +330,6 @@ def classify_stay_types(state: LodgingPlanningState):
                                                                                                    raw)
     return {
         "stay_legs": legs,
-        "wizard_progress": {"stay_type_review": raw}
     }
 
 
@@ -857,12 +856,10 @@ def review_stay(state: StayLegState):
             return {
                 "selected": None, 
                 "review_decision": "finalize",
-                "wizard_progress": {"stay_review": raw}
             }
         return {
             "review_feedback": raw, 
             "review_decision": "revise",
-            "wizard_progress": {"stay_review": raw}
         }
 
     raw = interrupt({
@@ -876,18 +873,15 @@ def review_stay(state: StayLegState):
         return {
             "selected": state["options"][0], 
             "review_decision": "finalize",
-            "wizard_progress": {"stay_review": raw}
         }
     if raw.strip().isdigit() and int(raw) < len(state["options"]):
         return {
             "selected": state["options"][int(raw)], 
             "review_decision": "finalize",
-            "wizard_progress": {"stay_review": raw}
         }
     return {
         "review_feedback": raw, 
         "review_decision": "revise",
-        "wizard_progress": {"stay_review": raw}
     }
 
 

@@ -171,6 +171,4 @@ export interface InitialTripState {
 
   stay_legs: StayLeg[];
   finalized_stays: unknown[]; // { ...StayLeg, selected: StayOption | null }
-
-  wizard_progress: Record<string, unknown>; // Accumulates user responses from all interrupt nodes
 }

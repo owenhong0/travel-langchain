@@ -13,10 +13,6 @@ from leg_transportation_graph import transport_graph
 from lodging_graph import lodging_graph
 
 
-def merge_step_data(existing: dict, new: dict) -> dict:
-    """Custom merge reducer for wizard_progress - shallow merge of step keys"""
-    return {**existing, **new}
-
 # ---------- Unified state ----------
 # Superset of DestinationResearchState + TransportPlanningState + LodgingPlanningState.
 # All three subgraphs are compiled WITHOUT their own checkpointer (see each file's
@@ -58,9 +54,6 @@ class OrchestratorState(TypedDict):
     stay_legs: list[dict]
     finalized_stays: Annotated[list[dict], operator.add]
 
-    # --- wizard progress accumulator ---
-    wizard_progress: Annotated[dict[str, Any], merge_step_data]
-
 
 # ---------- Bridge node ----------
 
@@ -73,14 +66,8 @@ def collect_loyalty_programmes(state: OrchestratorState):
         "message": "Any hotel loyalty programmes you hold? Comma-separated (e.g. "
                    "'Marriott Bonvoy, Hyatt'), or 'skip' for none.",
     })
-    if raw.strip().lower() in APPROVE_SIGNALS or raw.strip().lower() == "skip":
-        return {
-            "loyalty_programmes": [],
-            "wizard_progress": {"loyalty_programmes_request": raw}
-        }
     return {
-        "loyalty_programmes": [p.strip() for p in raw.split(",") if p.strip()],
-        "wizard_progress": {"loyalty_programmes_request": raw}
+        "loyalty_programmes": [],
     }
 
 
