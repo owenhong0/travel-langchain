@@ -191,7 +191,9 @@ def classify_leg_modes(state: TransportPlanningState):
         "legs": annotated,   # now includes distance_miles so you can see what drove the suggestion
     })
     legs = annotated if raw.strip().lower() in APPROVE_SIGNALS else _apply_mode_overrides(annotated, raw)
-    return {"legs": legs}
+    return {
+        "legs": legs
+    }
 
 def request_home_context(state: TransportPlanningState):
     raw = interrupt({
@@ -812,8 +814,14 @@ def review_leg_transport(state: LegTransportState):
             "options": [],
         })
         if raw.strip().lower() == "skip":
-            return {"selected": None, "review_decision": "finalize"}
-        return {"review_feedback": raw, "review_decision": "revise"}
+            return {
+                "selected": None, 
+                "review_decision": "finalize",
+            }
+        return {
+            "review_feedback": raw, 
+            "review_decision": "revise",
+        }
 
     raw = interrupt({
         "type": "leg_transport_review",
@@ -823,10 +831,19 @@ def review_leg_transport(state: LegTransportState):
         "options": state["options"],
     })
     if raw.strip().lower() in APPROVE_SIGNALS:
-        return {"selected": state["options"][0], "review_decision": "finalize"}
+        return {
+            "selected": state["options"][0], 
+            "review_decision": "finalize",
+        }
     if raw.strip().isdigit() and int(raw) < len(state["options"]):
-        return {"selected": state["options"][int(raw)], "review_decision": "finalize"}
-    return {"review_feedback": raw, "review_decision": "revise"}
+        return {
+            "selected": state["options"][int(raw)], 
+            "review_decision": "finalize",
+        }
+    return {
+        "review_feedback": raw, 
+        "review_decision": "revise",
+    }
 
 def route_leg_review(state: LegTransportState):
     return "finalize_leg" if state.get("review_decision") == "finalize" else "increment_round"

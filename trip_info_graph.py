@@ -144,7 +144,6 @@ class DestinationInterviewState(MessagesState):
     interview: str
     sections: list
 
-
 class DestinationResearchState(TypedDict):
     trip_preferences: str
     max_analysts: int
@@ -381,7 +380,9 @@ def human_feedback(state: DestinationResearchState):
                    "or give feedback to revise the panel.",
         "analysts": [an.persona for an in state["analysts"]],
     })
-    return {"human_analyst_feedback": h_feedback}
+    return {
+        "human_analyst_feedback": h_feedback
+    }
 
 
 question_instructions = """You are {persona_name}, a travel analyst focused on: {focus_area}
@@ -579,7 +580,10 @@ def review_destinations(state: DestinationResearchState):
     response = raw_response if isinstance(raw_response, dict) else parse_review_response(raw_response, candidates)
 
     if response["type"] == "finalize":
-        return {"finalized_destinations": response["chosen"], "review_decision": "finalize"}
+        return {
+            "finalized_destinations": response["chosen"], 
+            "review_decision": "finalize",
+        }
     elif response["type"] == "revise":
         updated_preferences = (
                 state["trip_preferences"]
@@ -704,12 +708,20 @@ def review_order(state: DestinationResearchState):
     response = parse_order_response(raw, stops) if isinstance(raw, str) else raw
 
     if response["type"] == "finalize":
-        return {"order_decision": "finalize"}
+        return {
+            "order_decision": "finalize",
+        }
     elif response["type"] == "drop":
         remaining = [s for i, s in enumerate(stops) if i not in response["drop_indices"]]
-        return {"ordered_destinations": remaining, "order_decision": "finalize"}
+        return {
+            "ordered_destinations": remaining, 
+            "order_decision": "finalize",
+        }
     else:
-        return {"order_feedback": response["feedback"], "order_decision": "revise"}
+        return {
+            "order_feedback": response["feedback"], 
+            "order_decision": "revise",
+        }
 
 
 def route_after_order_review(state: DestinationResearchState):
@@ -728,7 +740,10 @@ def request_start_date(state: DestinationResearchState):
                          else (raw.get("start_date", ""), None, raw.get("end_date", "")))
         start, end = start.strip(), end.strip()
         if start and end:
-            return {"trip_start_date": start, "trip_end_date": end}
+            return {
+                "trip_start_date": start, 
+                "trip_end_date": end,
+            }
         # loop repeats, interrupt fires again with the same message
 
 
@@ -784,9 +799,14 @@ def review_dates(state: DestinationResearchState):
     })
     text = raw.strip() if isinstance(raw, str) else None
     if text is not None and text.lower() in APPROVE_SIGNALS:
-        return {"date_decision": "finalize"}
+        return {
+            "date_decision": "finalize",
+        }
     feedback = text if text is not None else raw.get("feedback", "")
-    return {"date_feedback": feedback, "date_decision": "revise"}
+    return {
+        "date_feedback": feedback, 
+        "date_decision": "revise",
+    }
 
 
 def route_after_date_review(state: DestinationResearchState):

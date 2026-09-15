@@ -2,57 +2,78 @@ import { useLocation } from "react-router-dom";
 import { useTripThreadContext } from "./useTripThreadContext";
 import { useInterruptOfType } from "./useInterruptOfType";
 import type { Interrupt, InitialTripState } from "../types/orchestrator";
+import type { InterruptHistorySnapshot } from "../lib/interruptHistory";
 
 interface LocationState {
   viewingCheckpointId?: string;
+  viewingInterruptType?: string;
 }
 
-// Type-safe return type for the hook
 interface UseReviewInterruptReturn<T extends Interrupt["type"]> {
   interrupt: Extract<Interrupt, { type: T }> | null;
   values: InitialTripState | undefined;
   isLive: boolean;
   isStreaming: boolean;
+  isProcessing: boolean;
+  isUnexpected: boolean;
   submit: (value: string | object) => Promise<void>;
+}
+
+function resolveHistoricalInterrupt<T extends Interrupt["type"]>(
+  type: T,
+  viewingCheckpointId: string | undefined,
+  interruptHistory: InterruptHistorySnapshot[]
+): {
+  interrupt: Extract<Interrupt, { type: T }> | null;
+  values: InitialTripState | undefined;
+  sourceCheckpointId: string | undefined;
+  sourceCheckpointNs: string | undefined;
+} {
+  if (!viewingCheckpointId) {
+    return { interrupt: null, values: undefined, sourceCheckpointId: undefined, sourceCheckpointNs: undefined };
+  }
+
+  const entry = interruptHistory.find((snap) => snap.checkpoint_id === viewingCheckpointId);
+
+  if (!entry || entry.interrupt_type !== type) {
+    return { interrupt: null, values: undefined, sourceCheckpointId: undefined, sourceCheckpointNs: undefined };
+  }
+
+  return {
+    interrupt: entry.interrupt_value as Extract<Interrupt, { type: T }>,
+    values: entry.values as InitialTripState | undefined,
+    sourceCheckpointId: viewingCheckpointId,
+    sourceCheckpointNs: entry.checkpoint_ns,
+  };
 }
 
 export function useReviewInterrupt<T extends Interrupt["type"]>(
   type: T
 ): UseReviewInterruptReturn<T> {
-  const { resume, forkFrom, isStreaming, history, values: liveValues } = useTripThreadContext();
+  const { resume, forkFrom, isStreaming, interruptHistory, values: liveValues } = useTripThreadContext();
   const location = useLocation();
   const viewingCheckpointId = (location.state as LocationState | null)?.viewingCheckpointId;
   const isLive = !viewingCheckpointId;
 
-  // Use existing type-narrowing hook for live interrupts
-  const liveInterrupt = useInterruptOfType(type);
+  const liveInterruptResult = useInterruptOfType(type);
 
-  let interrupt: Extract<Interrupt, { type: T }> | null = null;
-  let values: InitialTripState | undefined = liveValues as InitialTripState | undefined;
-  let sourceCheckpointId: string | undefined;
+  const historical = isLive
+    ? { interrupt: null, values: undefined, sourceCheckpointId: undefined, sourceCheckpointNs: undefined }
+    : resolveHistoricalInterrupt(type, viewingCheckpointId, interruptHistory);
 
-  if (isLive) {
-    interrupt = liveInterrupt;
-  } else {
-    const snapshot = (history ?? []).find(
-      (s) => s.checkpoint?.checkpoint_id === viewingCheckpointId
-    );
-    if (snapshot) {
-      const historicalInterrupt = snapshot.tasks[0]?.interrupts[0]?.value as Interrupt | undefined;
-      if (historicalInterrupt?.type === type) {
-        interrupt = historicalInterrupt as Extract<Interrupt, { type: T }>;
-        values = snapshot.values as InitialTripState | undefined;
-        sourceCheckpointId = snapshot.checkpoint?.checkpoint_id ?? undefined;
-      }
-    }
-  }
+  const interrupt = isLive ? liveInterruptResult.interrupt : historical.interrupt;
+  const values = isLive ? (liveValues as InitialTripState | undefined) : historical.values;
+  const sourceCheckpointId = isLive ? undefined : historical.sourceCheckpointId;
+  const sourceCheckpointNs = isLive ? undefined : historical.sourceCheckpointNs;
+  const isProcessing = isLive ? liveInterruptResult.isProcessing : false;
+  const isUnexpected = isLive ? liveInterruptResult.isUnexpected : false;
 
   const submit = async (value: string | object): Promise<void> => {
     try {
       if (isLive) {
         await resume(value);
       } else if (sourceCheckpointId) {
-        await forkFrom(sourceCheckpointId, value);
+        await forkFrom(sourceCheckpointId, sourceCheckpointNs ?? "", value);
       } else {
         console.warn('Cannot submit: no live interrupt or source checkpoint ID');
       }
@@ -62,11 +83,13 @@ export function useReviewInterrupt<T extends Interrupt["type"]>(
     }
   };
 
-  return { 
-    interrupt, 
+  return {
+    interrupt,
     values,
-    isLive, 
-    isStreaming: isLive ? isStreaming : false, 
-    submit 
+    isLive,
+    isStreaming: isLive ? isStreaming : false,
+    isProcessing,
+    isUnexpected,
+    submit,
   };
 }

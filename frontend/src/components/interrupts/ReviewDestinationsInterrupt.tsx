@@ -10,7 +10,7 @@ interface DestinationCardProps {
   index: number;
 }
 
-function DestinationCard({ candidate, index }: DestinationCardProps) {
+export function DestinationCard({ candidate, index }: DestinationCardProps) {
   const durationText = candidate.recommended_duration_days_min === candidate.recommended_duration_days_max
     ? `${candidate.recommended_duration_days_min} days`
     : `${candidate.recommended_duration_days_min}-${candidate.recommended_duration_days_max} days`;
@@ -38,7 +38,7 @@ function DestinationCard({ candidate, index }: DestinationCardProps) {
 }
 
 export function ReviewDestinationsInterrupt() {
-    const { interrupt, isLive, isStreaming, submit } = useReviewInterrupt("review_destinations");
+    const { interrupt, isLive, isStreaming, isProcessing, submit } = useReviewInterrupt("review_destinations");
     
     if (!interrupt) {
         return <UnknownInterruptFallback />;
@@ -53,6 +53,7 @@ export function ReviewDestinationsInterrupt() {
             <ReviewShell 
                 title="Review destination candidates" 
                 isStreaming={isStreaming}
+                isProcessing={isProcessing}
                 onApprove={handleApprove} 
                 onRequestChanges={handleRequestChanges}
             >

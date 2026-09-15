@@ -2,10 +2,13 @@ import { ReviewShell } from "./ReviewShell";
 import {UnknownInterruptFallback} from "./UnknownInterruptFallback.tsx";
 import { useReviewInterrupt } from "../../hooks/useReviewInterrupt";
 import { HistoricalBanner } from "../HistoricalBanner";
+import { ProcessingState } from "../ProcessingState";
 
 export function HumanFeedbackInterrupt() {
-    const { interrupt, isLive, isStreaming, submit } = useReviewInterrupt("human_feedback");
-    if (!interrupt) return <UnknownInterruptFallback />;
+    const { interrupt, isLive, isStreaming, isProcessing, isUnexpected, submit } = useReviewInterrupt("human_feedback");
+    
+    if (isProcessing) return <ProcessingState />;
+    if (isUnexpected || !interrupt) return <UnknownInterruptFallback />;
 
     return (
         <>

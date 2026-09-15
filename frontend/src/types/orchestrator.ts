@@ -16,7 +16,7 @@ export interface DestinationCandidate {
 }
 
 // OrderedStop (trip_info_graph.py) — used in both order_review and start_date_request
-export interface OrderedDestination {
+export interface OrderedDestination{
   city: string;
   country: string;
   recommended_duration_days: string; // e.g. "2-4" — a range string, not a number

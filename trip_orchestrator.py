@@ -1,7 +1,7 @@
 # trip_orchestrator.py
 import json
 import operator
-from typing import Annotated, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict, Any
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.constants import END, START
@@ -11,6 +11,7 @@ from langgraph.types import Command, interrupt
 from trip_info_graph import destination_graph, APPROVE_SIGNALS
 from leg_transportation_graph import transport_graph
 from lodging_graph import lodging_graph
+
 
 # ---------- Unified state ----------
 # Superset of DestinationResearchState + TransportPlanningState + LodgingPlanningState.
@@ -65,9 +66,9 @@ def collect_loyalty_programmes(state: OrchestratorState):
         "message": "Any hotel loyalty programmes you hold? Comma-separated (e.g. "
                    "'Marriott Bonvoy, Hyatt'), or 'skip' for none.",
     })
-    if raw.strip().lower() in APPROVE_SIGNALS or raw.strip().lower() == "skip":
-        return {"loyalty_programmes": []}
-    return {"loyalty_programmes": [p.strip() for p in raw.split(",") if p.strip()]}
+    return {
+        "loyalty_programmes": [],
+    }
 
 
 # ---------- Graph wiring ----------

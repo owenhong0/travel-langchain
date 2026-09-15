@@ -13,11 +13,9 @@ interface TimelineStep {
   route: string;
   isHead: boolean;
   isActive: boolean;
-  timestamp?: string;
   status: "completed" | "current" | "pending";
 }
 
-// Map interrupt types to human-readable labels
 const INTERRUPT_LABELS: Record<Interrupt["type"], string> = {
   human_feedback: "Human Feedback",
   review_destinations: "Review Destinations",
@@ -33,67 +31,42 @@ const INTERRUPT_LABELS: Record<Interrupt["type"], string> = {
 };
 
 export function ReviewTimeline() {
-  const { history, isStreaming } = useTripThreadContext();
+  const { interruptHistory, isStreaming, interrupt } = useTripThreadContext();
   const { threadId } = useParams<{ threadId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const currentViewingId = (location.state as LocationState | null)?.viewingCheckpointId;
 
-  // Filter and process timeline steps with better typing
-  const reviewStages = (history ?? []).filter((snap) =>
-    snap.tasks.some((task) =>
-      task.interrupts.some((interrupt) => {
-        const interruptValue = interrupt.value as Interrupt | undefined;
-        return interruptValue?.type !== undefined && interruptValue.type in ROUTE_FOR_INTERRUPT;
-      })
-    )
+  // checkpoint_id is ULID-based, so a lexical sort is also a chronological sort.
+  const sortedHistory = [...interruptHistory].sort((a, b) =>
+    a.checkpoint_id.localeCompare(b.checkpoint_id)
   );
 
-  const headCheckpointId = history?.[0]?.checkpoint?.checkpoint_id;
+  const timelineSteps: TimelineStep[] = sortedHistory.map((entry, index) => {
+    const isLastEntry = index === sortedHistory.length - 1;
+    // The most recent checkpoint is "current" only if its type still matches
+    // the live interrupt — guards against a stale last-entry right after a
+    // resume, before the next fetch has caught up.
+    const isHead = isLastEntry && entry.interrupt_type === interrupt?.type;
+    const isActive = isHead ? !currentViewingId : entry.checkpoint_id === currentViewingId;
+    const status: TimelineStep["status"] = isHead && isStreaming ? "current" : "completed";
 
-  // Create timeline steps with proper typing
-  const timelineSteps: TimelineStep[] = [...reviewStages]
-    .reverse()
-    .map((snap) => {
-      const checkpointId = snap.checkpoint?.checkpoint_id;
-      const interruptValue = snap.tasks[0]?.interrupts[0]?.value as Interrupt | undefined;
-      const type = interruptValue?.type;
-      
-      if (!type || !checkpointId || !(type in ROUTE_FOR_INTERRUPT)) {
-        return null;
-      }
-
-      const route = ROUTE_FOR_INTERRUPT[type];
-      const isHead = checkpointId === headCheckpointId;
-      const isActive = isHead ? !currentViewingId : checkpointId === currentViewingId;
-      
-      // Determine status based on position and state
-      let status: TimelineStep["status"];
-      if (isHead && isStreaming) {
-        status = "current";
-      } else if (isHead) {
-        status = "completed";
-      } else {
-        status = "completed";
-      }
-
-      return {
-        checkpointId,
-        type,
-        route,
-        isHead,
-        isActive,
-        timestamp: snap.created_at,
-        status,
-      };
-    })
-    .filter((step): step is TimelineStep => step !== null);
+    return {
+      checkpointId: entry.checkpoint_id,
+      type: entry.interrupt_type as Interrupt["type"],
+      route: ROUTE_FOR_INTERRUPT[entry.interrupt_type as keyof typeof ROUTE_FOR_INTERRUPT],
+      isHead,
+      isActive,
+      status,
+    };
+  });
 
   const handleStepClick = (step: TimelineStep) => {
     if (!threadId) return;
-    
     navigate(`/trip/${threadId}/${step.route}`, {
-      state: step.isHead ? undefined : { viewingCheckpointId: step.checkpointId },
+      state: step.isHead
+        ? undefined
+        : { viewingCheckpointId: step.checkpointId, viewingInterruptType: step.type },
     });
   };
 
@@ -108,11 +81,11 @@ export function ReviewTimeline() {
           </div>
         )}
       </div>
-      
+
       <div className="timeline-steps">
         {timelineSteps.map((step, index) => (
           <button
-            key={step.checkpointId}
+            key={`${step.checkpointId}-${step.type}`}
             type="button"
             className={[
               "timeline-step",
@@ -132,22 +105,12 @@ export function ReviewTimeline() {
               <div className="step-label">
                 {INTERRUPT_LABELS[step.type] || step.type}
               </div>
-              {step.isHead && (
-                <div className="step-badge">Current</div>
-              )}
-              {step.timestamp && (
-                <div className="step-timestamp">
-                  {new Date(step.timestamp).toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
-                </div>
-              )}
+              {step.isHead && <div className="step-badge">Current</div>}
             </div>
           </button>
         ))}
       </div>
-      
+
       {timelineSteps.length === 0 && (
         <div className="timeline-empty">
           <p>No review steps yet</p>

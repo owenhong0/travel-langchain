@@ -9,6 +9,9 @@
   },
   "env": "./.env",
   "python_version": "3.11",
+  "http": {
+    "app": "./webapp.py:app"
+  },
   "dependencies": [
     "."
   ]
