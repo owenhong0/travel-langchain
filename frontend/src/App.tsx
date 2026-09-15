@@ -1,5 +1,5 @@
 // src/App.tsx
-import {BrowserRouter, Routes, Route, Outlet} from "react-router-dom";
+import {BrowserRouter, Routes, Route} from "react-router-dom";
 import {TripThreadProvider} from "./context/TripThreadProvider";
 import {TripLayout} from "./components/TripLayout";
 import {StartTrip} from "./components/StartTrip";

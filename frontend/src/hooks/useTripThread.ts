@@ -3,11 +3,15 @@ import {useNavigate} from "react-router-dom";
 import {ROUTE_FOR_INTERRUPT} from "../lib/interruptRoutes";
 import type {InitialTripState, Interrupt} from "../types/orchestrator";
 import {useStream} from "@langchain/langgraph-sdk/react";
+import {fetchInterruptHistory, type InterruptHistorySnapshot} from "../lib/interruptHistory";
 
 export function useTripThread(existingThreadId?: string) {
     const navigate = useNavigate();
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(existingThreadId || null);
     const lastInterruptIdRef = useRef<string | undefined>(null);
+
+    // New — holds the namespace-aware interrupt history from our custom endpoint.
+    const [interruptHistory, setInterruptHistory] = useState<InterruptHistorySnapshot[]>([]);
 
     const thread = useStream({
         apiUrl: import.meta.env.VITE_LANGGRAPH_API_URL,
@@ -25,33 +29,58 @@ export function useTripThread(existingThreadId?: string) {
     // thread.history        -> ThreadState[], full checkpoint list for this thread
     // thread.error          -> any streaming errors
 
+    // New — fetches the full interrupt history from our custom backend endpoint,
+    // which walks every checkpoint_ns (unlike thread.history, which only sees
+    // the root namespace). Called on initial load and after resume/fork succeed.
+    const refreshInterruptHistory = useCallback(async (threadId: string) => {
+        try {
+            const result = await fetchInterruptHistory(threadId);
+            setInterruptHistory(result.snapshots);
+        } catch (err) {
+            console.error('[useTripThread] Failed to fetch interrupt history:', err);
+        }
+    }, []);
+
     const start = useCallback(
         async (initialState: InitialTripState) => {
             await thread.submit(initialState);
+            const threadIdToUse = currentThreadId || existingThreadId;
+            if (threadIdToUse) {
+                await refreshInterruptHistory(threadIdToUse);
+            }
         },
-        [thread]
+        [thread, currentThreadId, existingThreadId, refreshInterruptHistory]
     );
 
     const resume = useCallback(
         async (value: string | object) => {
             console.log('[useTripThread] Resuming with value:', value);
             await thread.submit(undefined, {command: {resume: value}});
+            const threadIdToUse = currentThreadId || existingThreadId;
+            if (threadIdToUse) {
+                await refreshInterruptHistory(threadIdToUse);
+            }
         },
-        [thread]
+        [thread, currentThreadId, existingThreadId, refreshInterruptHistory]
     );
 
     const forkFrom = useCallback(
-        async (checkpointId: string, value: string | object) => {
-            console.log('[useTripThread] Forking from checkpoint:', checkpointId, 'with value:', value);
+        async (checkpointId: string, checkpointNs: string, value: string | object) => {
+            console.log('[useTripThread] Forking from checkpoint:', checkpointId, 'ns:', checkpointNs, 'with value:', value);
             await thread.submit(undefined, {
                 command: {resume: value},
-                checkpoint: {checkpoint_id: checkpointId, checkpoint_ns: "", checkpoint_map: undefined},
+                checkpoint: {checkpoint_id: checkpointId, checkpoint_ns: checkpointNs, checkpoint_map: undefined},
             });
+            const threadIdToUse = currentThreadId || existingThreadId;
+            if (threadIdToUse) {
+                await refreshInterruptHistory(threadIdToUse);
+            }
         },
-        [thread]
+        [thread, currentThreadId, existingThreadId, refreshInterruptHistory]
     );
 
-    // Handle navigation based on interrupt state - only navigate for NEW interrupts
+    // Original — unchanged. Handles navigation based on interrupt state, only
+    // navigating for NEW interrupts.
     useEffect(() => {
         if (!currentThreadId && !existingThreadId) {
             console.log('[useTripThread] No thread ID available, skipping navigation');
@@ -101,6 +130,29 @@ export function useTripThread(existingThreadId?: string) {
         }
     }, [thread.interrupt?.id, thread.interrupt?.value, thread.isLoading, thread.messages.length, navigate, currentThreadId, existingThreadId]);
 
+    // New — separate effect, separate concern: fetch interrupt history once
+    // the thread ID is known (covers initial load, refresh, and deep links).
+    useEffect(() => {
+        const threadIdToUse = currentThreadId || existingThreadId;
+        if (!threadIdToUse) return;
+
+        let cancelled = false;
+
+        fetchInterruptHistory(threadIdToUse)
+            .then((result) => {
+                if (!cancelled) {
+                    setInterruptHistory(result.snapshots);
+                }
+            })
+            .catch((err) => {
+                console.error('[useTripThread] Failed to fetch interrupt history:', err);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [currentThreadId, existingThreadId]);
+
     const errorMessage = thread.error ?
         (typeof thread.error === 'string' ? thread.error :
             typeof thread.error === 'object' && thread.error && 'message' in thread.error ?
@@ -110,7 +162,7 @@ export function useTripThread(existingThreadId?: string) {
         threadId: currentThreadId || existingThreadId || null,
         interrupt: thread.interrupt?.value as Interrupt | undefined,
         values: thread.values,
-        history: thread.history,
+        interruptHistory, // new — the namespace-aware endpoint data
         runComplete: !thread.isLoading && thread.messages.length > 0 && !thread.interrupt,
         isStreaming: thread.isLoading,
         error: errorMessage,

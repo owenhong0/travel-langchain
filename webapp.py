@@ -18,6 +18,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def _is_subgraph_mirror(hit: dict, all_hits: list[dict]) -> bool:
+    """A root-namespace checkpoint whose `next` points into a subgraph that
+    has its own nested checkpoint(s) is a live mirror of whatever's currently
+    pending inside that subgraph — not a distinct step of its own."""
+    if hit["checkpoint_ns"] != "" or not hit["next"]:
+        return False
+    parent_node = hit["next"][0]
+    return any(h["checkpoint_ns"].startswith(f"{parent_node}:") for h in all_hits)
+
 
 @app.get("/interrupt-history/{thread_id}")
 def get_interrupt_history(thread_id: str):
@@ -40,6 +49,7 @@ def get_interrupt_history(thread_id: str):
                     "values": snap.values,
                     "interrupt_value": interrupt_value,
                 })
-
+    # after building `hits`, before sorting:
+    hits = [h for h in hits if not _is_subgraph_mirror(h, hits)]
     hits.sort(key=lambda h: h["checkpoint_id"])
     return {"thread_id": thread_id, "count": len(hits), "snapshots": hits}
