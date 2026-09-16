@@ -13,11 +13,13 @@ app = FastAPI()
 # The frontend runs on a different port during dev (Vite), so this needs CORS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # adjust to your actual dev/prod origins
+    allow_origins=[
+        "http://localhost:5173",       # Vite dev server
+        "https://smith.langchain.com", # LangSmith Studio (tunnel mode)
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 def _is_subgraph_mirror(hit: dict, all_hits: list[dict]) -> bool:
     """A root-namespace checkpoint whose `next` points into a subgraph that
     has its own nested checkpoint(s) is a live mirror of whatever's currently

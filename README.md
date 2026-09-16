@@ -1,3 +1,11 @@
+
+## Local dev (picks up override automatically):
+docker compose up -d langgraph-api
+
+## Non-dev / prod deploy (base file only, no bind mount, no toggling required):
+docker compose -f docker-compose.yml up -d langgraph-api
+
+
 # AI Travel Planner
 
 A multi-agent travel planning system built on LangGraph. A single traveler intent flows

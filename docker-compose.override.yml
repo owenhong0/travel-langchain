@@ -1,0 +1,4 @@
+services:
+    langgraph-api:
+        volumes:
+            - ./:/deps/outer-travel-langchain/src

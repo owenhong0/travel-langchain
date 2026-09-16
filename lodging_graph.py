@@ -9,6 +9,7 @@ from typing import Annotated, TypedDict, Optional, Literal
 import requests
 from urllib.parse import urlparse
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch, TavilyExtract
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,6 +18,7 @@ from langgraph.graph import StateGraph
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field
 
+from cache_utils import cached_tavily_search, cached_tavily_extract
 from llm_config import get_llm
 from main import duffel_city_country
 from trip_info_graph import (
@@ -27,6 +29,8 @@ from leg_transportation_graph import (
     discover_relevant_domains, _tavily_results, _place_tokens, _clean_place_name,
     normalize_country_fallback,
 )
+
+POSTGRES_URI = os.environ.get("POSTGRES_URI")
 
 llm = get_llm("premium")  # recommend_stay_options stays premium
 extraction_llm = get_llm("cheap")  # default tier for all search/extraction nodes
@@ -48,7 +52,7 @@ GENERAL_OTA_DOMAINS_BY_COUNTRY = {
 }
 
 
-def _general_ota_domains(leg: "StayLeg") -> list[str]:
+def _general_ota_domains(leg: "StayLeg", config: RunnableConfig = None) -> list[str]:
     """Live-discovers regionally relevant OTA domains for this leg's country, falling
     back to a small structured map (then the flat Western default) when discovery comes
     up thin — a Western-only OTA list misses local budget inventory the same way the old
@@ -57,6 +61,7 @@ def _general_ota_domains(leg: "StayLeg") -> list[str]:
     discovered = discover_relevant_domains(
         f"best hotel booking website OTA {country}",
         cache_key=(country, "lodging_ota"),
+        config=config,
     )
     domains = list(dict.fromkeys(discovered + GENERAL_OTA_DOMAINS))
     if len(domains) < 3:
@@ -521,7 +526,7 @@ leave price_amount, price_currency, price_type, and booking_url null; this sourc
 discovering distinctive properties, not for verified pricing."""
 
 
-def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
+def _run_stay_search(config: RunnableConfig | None, leg: StayLeg, domains: list[str], type_label: str,
                       feedback: Optional[str], source: str, round_num: int,
                       extra_instructions: str = "", split_by_area: bool = True,
                       search_llm: Optional[ChatOpenAI] = None) -> list[dict]:
@@ -548,7 +553,10 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
         if feedback:
             query += f" — traveler feedback: {feedback}"
 
-        data = TavilySearch(max_results=3, include_domains=domains, include_raw_content="text").invoke({"query": query})
+        data = cached_tavily_search(
+            config, POSTGRES_URI, {"query": query},
+            max_results=3, include_domains=domains, include_raw_content="text",
+        )
         docs = [d for d in _tavily_results(data) if _url_matches_city(d.get("url"), base_city)]
         for d in docs:
             if d.get("raw_content"):
@@ -583,48 +591,48 @@ def _run_stay_search(leg: StayLeg, domains: list[str], type_label: str,
     return tagged
 
 
-def search_agoda(state: StayLegState):
+def search_agoda(state: StayLegState, config: RunnableConfig):
     leg = state["leg"]
     type_label = "/".join(leg["stay_types_requested"])
     domains = AGODA_DOMAIN + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
-    options = _run_stay_search(leg, domains, type_label, state.get("review_feedback"),
+    options = _run_stay_search(config, leg, domains, type_label, state.get("review_feedback"),
                                "agoda", state.get("search_round", 0),
                                search_llm=extraction_llm)
     return {"raw_options": options}
 
 
-def search_hotel_chains(state: StayLegState):
+def search_hotel_chains(state: StayLegState, config: RunnableConfig):
     leg = state["leg"]
-    options = _run_stay_search(leg, HOTEL_CHAIN_DOMAINS, "hotel loyalty programme",
+    options = _run_stay_search(config, leg, HOTEL_CHAIN_DOMAINS, "hotel loyalty programme",
                                state.get("review_feedback"), "chain", state.get("search_round", 0),
                                split_by_area=False, search_llm=extraction_llm)
     return {"raw_options": options}
 
 
-def search_general_ota(state: StayLegState):
+def search_general_ota(state: StayLegState, config: RunnableConfig):
     """Independent corroboration source, separate from Agoda — same purpose as
     verify_route_options in the transport graph."""
     leg = state["leg"]
     type_label = "/".join(leg["stay_types_requested"])
-    domains = _general_ota_domains(leg) + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
-    options = _run_stay_search(leg, domains, type_label, state.get("review_feedback"),
+    domains = _general_ota_domains(leg, config=config) + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
+    options = _run_stay_search(config, leg, domains, type_label, state.get("review_feedback"),
                                "general_ota", state.get("search_round", 0),
                                search_llm=extraction_llm)
     return {"raw_options": options}
 
 _editorial_llm = get_llm("mid")  # module-level, avoid re-instantiating per call
 
-def search_unique_stays(state: StayLegState):
+def search_unique_stays(state: StayLegState, config: RunnableConfig):
     leg = state["leg"]
     domains = MAGAZINE_DOMAINS + UNIQUE_EXPERIENCE_DOMAINS
-    options = _run_stay_search(leg, domains, "unique boutique stay", state.get("review_feedback"),
+    options = _run_stay_search(config, leg, domains, "unique boutique stay", state.get("review_feedback"),
                                "editorial", state.get("search_round", 0),
                                extra_instructions=editorial_price_caveat,
                                search_llm=_editorial_llm)
     return {"raw_options": options}
 
 
-def search_rates_direct(state: StayLegState):
+def search_rates_direct(state: StayLegState, config: RunnableConfig):
     """Deep-links directly into Booking.com / Expedia search results with the traveler's
     exact dates baked into the URL, then Extracts (not searches) the rendered page — this
     is the source most likely to reflect real, date-specific pricing rather than a generic
@@ -634,7 +642,6 @@ def search_rates_direct(state: StayLegState):
     base_city, areas = _parse_city_areas(leg["city"])
     search_targets = areas if areas else [None]
     nights = _nights(leg)
-    extractor = TavilyExtract(extract_depth="advanced")
     tagged = []
 
     for area in search_targets:
@@ -653,7 +660,10 @@ def search_rates_direct(state: StayLegState):
 
         for source, url in urls.items():
             try:
-                result = extractor.invoke({"urls": [url]})
+                result = cached_tavily_extract(
+                    config, POSTGRES_URI, {"urls": [url]},
+                    extract_depth="advanced",
+                )
             except Exception:
                 continue
             pages = result.get("results", []) if isinstance(result, dict) else []
@@ -740,7 +750,7 @@ def reconcile_stay_options(state: StayLegState):
 
 # ---------- Points-value enrichment (MaxMyPoint) ----------
 
-def enrich_points_value(state: StayLegState):
+def enrich_points_value(state: StayLegState, config: RunnableConfig):
     """Enrich chain-hotel options with reward-night value/bookable-with-points info from
     MaxMyPoint. Only runs for options tagged source == "chain" whose brand matches a
     program the traveler actually holds — skipped entirely when loyalty_programmes is
@@ -757,10 +767,11 @@ def enrich_points_value(state: StayLegState):
 
     enriched_by_name = {}
     for opt in candidates:
-        data = TavilySearch(
+        data = cached_tavily_search(
+            config, POSTGRES_URI, {"query": f"{opt['name']} {leg['city']} points value bookable"},
             max_results=3, include_domains=CHAIN_POINTS_DOMAIN,
             search_depth="advanced", include_raw_content="text",
-        ).invoke({"query": f"{opt['name']} {leg['city']} points value bookable"})
+        )
         docs = [d for d in _tavily_results(data) if not _is_wrapped_redirect(d.get("url"))]
         if not docs:
             continue
@@ -847,18 +858,18 @@ def review_stay(state: StayLegState):
     if not state["options"]:
         raw = interrupt({
             "type": "stay_review",
-            "message": f"{state['leg']['city']}: no options found for the requested stay "
-                       "type(s). Reply with feedback to re-search, or 'skip' to leave unresolved.",
+             "message": f"{state['leg']['city']}: no options found for the requested stay "
+                       "type(s). Reply with feedback to re-search, or 'approve'/'skip' to leave unresolved.",
             "recommendation_reasoning": None,
             "options": [],
         })
-        if raw.strip().lower() == "skip":
+        if raw.strip().lower() in APPROVE_SIGNALS or raw.strip().lower() == "skip":
             return {
-                "selected": None, 
+                "selected": None,
                 "review_decision": "finalize",
             }
         return {
-            "review_feedback": raw, 
+            "review_feedback": raw,
             "review_decision": "revise",
         }
 
