@@ -5,6 +5,8 @@ import type {InitialTripState, Interrupt} from "../types/orchestrator";
 import {useStream} from "@langchain/langgraph-sdk/react";
 import {fetchInterruptHistory, type InterruptHistorySnapshot} from "../lib/interruptHistory";
 
+const TEST_MODE = import.meta.env.VITE_TEST_MODE === "true";
+
 export function useTripThread(existingThreadId?: string) {
     const navigate = useNavigate();
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(existingThreadId || null);
@@ -43,7 +45,9 @@ export function useTripThread(existingThreadId?: string) {
 
     const start = useCallback(
         async (initialState: InitialTripState) => {
-            await thread.submit(initialState);
+            await thread.submit(initialState, {
+                config: {configurable: {test_mode: TEST_MODE}},
+            });
             const threadIdToUse = currentThreadId || existingThreadId;
             if (threadIdToUse) {
                 await refreshInterruptHistory(threadIdToUse);
@@ -55,7 +59,10 @@ export function useTripThread(existingThreadId?: string) {
     const resume = useCallback(
         async (value: string | object) => {
             console.log('[useTripThread] Resuming with value:', value);
-            await thread.submit(undefined, {command: {resume: value}});
+            await thread.submit(undefined, {
+                command: {resume: value},
+                config: {configurable: {test_mode: TEST_MODE}},
+            });
             const threadIdToUse = currentThreadId || existingThreadId;
             if (threadIdToUse) {
                 await refreshInterruptHistory(threadIdToUse);
@@ -70,6 +77,7 @@ export function useTripThread(existingThreadId?: string) {
             await thread.submit(undefined, {
                 command: {resume: value},
                 checkpoint: {checkpoint_id: checkpointId, checkpoint_ns: checkpointNs, checkpoint_map: undefined},
+                config: {configurable: {test_mode: TEST_MODE}},
             });
             const threadIdToUse = currentThreadId || existingThreadId;
             if (threadIdToUse) {

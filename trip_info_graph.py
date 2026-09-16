@@ -28,7 +28,7 @@ load_dotenv()
 
 llm = get_llm("premium")  # create_analysts, extract_candidates, order_destinations, compute_dates
 interview_llm = get_llm("mid")  # generate_question, generate_answer, write_section
-retryable_llm = llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
+retryable_llm = interview_llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
 
 POSTGRES_URI = os.environ.get("POSTGRES_URI")
 
