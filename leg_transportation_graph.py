@@ -19,6 +19,10 @@ from pydantic import BaseModel, Field
 from llm_config import get_llm
 from trip_info_graph import invoke_structured_with_retry, APPROVE_SIGNALS
 from main import fetch_flight_offers, duffel_places_lookup, duffel_city_coords, duffel_city_country
+from langchain_core.runnables import RunnableConfig
+from cache_utils import cached_tavily_search
+
+POSTGRES_URI = os.environ.get("POSTGRES_URI")
 
 llm = get_llm("premium")          # recommend_leg_options stays on this
 extraction_llm = get_llm("cheap")  # search_route_options / verify_route_options / search_car_rental use this
@@ -290,11 +294,12 @@ def _tavily_results(data) -> list[dict]:
     return []
 
 def discover_relevant_domains(
-    query_hint: str, cache_key: tuple[str, str], max_domains: int = 4
+    query_hint: str, cache_key: tuple[str, str], max_domains: int = 4,
+    config: RunnableConfig = None,
 ) -> list[str]:
     if cache_key in _domain_cache:
         return _domain_cache[cache_key]
-    data = TavilySearch(max_results=5).invoke({"query": query_hint})
+    data = cached_tavily_search(config, POSTGRES_URI, {"query": query_hint}, max_results=5)
     print(f"[discover_relevant_domains] query={query_hint!r} raw_data_type={type(data)} raw_data={data!r}")  # DEBUG
     domains = []
     for r in _tavily_results(data):
@@ -537,7 +542,7 @@ named place), return options=[] rather than guessing.
 If the page shows no train/bus/ferry service at all (e.g. only flight), return options=[]
 and do not fabricate anything. Never substitute a link from an unrelated route or place."""
 
-def search_route_options(state: LegTransportState):
+def search_route_options(state: LegTransportState, config: RunnableConfig):
     leg = state["leg"]
     modes_requested = set(leg["modes_requested"]) & {"train", "bus", "ferry", "combined"}
     mode_label = "/".join(sorted(modes_requested)) or "train/bus/ferry"
@@ -545,6 +550,7 @@ def search_route_options(state: LegTransportState):
     discovered = discover_relevant_domains(
         f"official {mode_label} operator booking site {leg['origin']} {leg['destination']}",
         cache_key=(leg["destination_country"], mode_label),
+        config=config,
     )
     domains = list(dict.fromkeys(discovered + ROME2RIO_DOMAIN))
     if len(domains) < 3:
@@ -557,7 +563,10 @@ def search_route_options(state: LegTransportState):
     if state.get("review_feedback"):
         query += f" — traveler feedback: {state['review_feedback']}"
 
-    data = TavilySearch(max_results=5, include_domains=domains, include_raw_content="text").invoke({"query": query})
+    data = cached_tavily_search(
+        config, POSTGRES_URI, {"query": query},
+        max_results=5, include_domains=domains, include_raw_content="text",
+    )
     raw_results = _tavily_results(data)
     docs = [d for d in raw_results if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
     print(f"[search_route_options] {leg['origin']} -> {leg['destination']}: "  # DEBUG
@@ -570,11 +579,10 @@ def search_route_options(state: LegTransportState):
         fallback_domains = discovered or _flatten_by_country(
             leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
         ) + FERRY_DOMAINS
-        data = TavilySearch(
-            max_results=5,
-            include_domains=fallback_domains,
-            include_raw_content="text",
-        ).invoke({"query": query})
+        data = cached_tavily_search(
+            config, POSTGRES_URI, {"query": query},
+            max_results=5, include_domains=fallback_domains, include_raw_content="text",
+        )
         docs = [
             d for d in _tavily_results(data)
             if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])
@@ -603,7 +611,7 @@ def search_route_options(state: LegTransportState):
           f"extracted {len(result.options)} options, {len(tagged)} tagged as relevant")
     return {"raw_options": tagged}
 
-def verify_route_options(state: LegTransportState):
+def verify_route_options(state: LegTransportState, config: RunnableConfig):
     """Independent corroboration source — searches operator-specific domains (rail/bus/
     ferry company sites) discovered live for this leg's country, separate from
     search_route_options' Rome2Rio-first approach. Feeds reconcile_options, which flags
@@ -615,6 +623,7 @@ def verify_route_options(state: LegTransportState):
     discovered = discover_relevant_domains(
         f"official {mode_label} operator booking site {leg['origin']} {leg['destination']}",
         cache_key=(leg["destination_country"], mode_label),  # shares cache with search_route_options
+        config=config,
     )
     domains = discovered or _flatten_by_country(
         leg["destination_country"], RAIL_DOMAINS_BY_COUNTRY, BUS_DOMAINS_BY_COUNTRY
@@ -624,7 +633,10 @@ def verify_route_options(state: LegTransportState):
     if state.get("review_feedback"):
         query += f" — traveler feedback: {state['review_feedback']}"
 
-    data = TavilySearch(max_results=3, include_domains=domains, include_raw_content="text").invoke({"query": query})
+    data = cached_tavily_search(
+        config, POSTGRES_URI, {"query": query},
+        max_results=3, include_domains=domains, include_raw_content="text",
+    )
     docs = [d for d in _tavily_results(data)
             if _url_matches_route(d.get("url"), leg["origin"], leg["destination"])]
 
@@ -693,12 +705,13 @@ def search_flight_leg(state: LegTransportState):
     } for o in offers[:5]]
     return {"raw_options": options}
 
-def search_car_rental(state: LegTransportState):
+def search_car_rental(state: LegTransportState, config: RunnableConfig):
     leg = state["leg"]
     origin_display = leg["origin"]
     discovered = discover_relevant_domains(
         f"car rental company {origin_display}",
         cache_key=(origin_display, "car"),
+        config=config,
     )
     domains = list(dict.fromkeys(discovered + CAR_RENTAL_DOMAINS))
 
@@ -706,7 +719,7 @@ def search_car_rental(state: LegTransportState):
     if state.get("review_feedback"):
         query += f" — traveler feedback: {state['review_feedback']}"
 
-    data = TavilySearch(max_results=3, include_domains=domains).invoke({"query": query})
+    data = cached_tavily_search(config, POSTGRES_URI, {"query": query}, max_results=3, include_domains=domains)
     structured_llm = extraction_llm.with_structured_output(TransportOption)
     opt = invoke_structured_with_retry(structured_llm, [
         SystemMessage(content=(
