@@ -20,7 +20,7 @@ from llm_config import get_llm
 from trip_info_graph import invoke_structured_with_retry, APPROVE_SIGNALS
 from main import fetch_flight_offers, duffel_places_lookup, duffel_city_coords, duffel_city_country
 from langchain_core.runnables import RunnableConfig
-from cache_utils import cached_tavily_search
+from cache_utils import cached_tavily_search, cached_invoke_structured_with_retry
 
 POSTGRES_URI = os.environ.get("POSTGRES_URI")
 
@@ -592,10 +592,11 @@ def search_route_options(state: LegTransportState, config: RunnableConfig):
                 d["raw_content"] = d["raw_content"][:6000]
 
     structured_llm = llm.with_structured_output(RouteOptions)
-    result = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=route_extraction_instructions),
-        HumanMessage(content=json.dumps(docs)),
-    ], RouteOptions)
+    result = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=route_extraction_instructions),
+            HumanMessage(content=json.dumps(docs)),
+        ], RouteOptions)
 
     tagged = []
     for opt in result.options:
@@ -644,10 +645,11 @@ def verify_route_options(state: LegTransportState, config: RunnableConfig):
         return {"raw_options": []}
 
     structured_llm = extraction_llm.with_structured_output(RouteOptions)
-    result = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=route_extraction_instructions),
-        HumanMessage(content=json.dumps(docs)),
-    ], RouteOptions)
+    result = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "cheap", structured_llm, [
+            SystemMessage(content=route_extraction_instructions),
+            HumanMessage(content=json.dumps(docs)),
+        ], RouteOptions)
 
     tagged = [{**opt.model_dump(), "source": "operator_site", "round": state.get("search_round", 0)}
               for opt in result.options if opt.mode in modes]
@@ -721,23 +723,24 @@ def search_car_rental(state: LegTransportState, config: RunnableConfig):
 
     data = cached_tavily_search(config, POSTGRES_URI, {"query": query}, max_results=3, include_domains=domains)
     structured_llm = extraction_llm.with_structured_output(TransportOption)
-    opt = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=(
-            "Extract a representative car rental option (mode='car') from this search data. "
-            f"This is a PICKUP LOCATION search for the metro area of '{origin_display}'. "
-            "Accept results for rentals anywhere in that city or its main airport, even if "
-            "the exact neighborhood/district name isn't mentioned verbatim — a rental listed "
-            "generally for the city is valid. Only treat it as not found if results are for a "
-            "clearly different city entirely.\n\n"
-            "IMPORTANT: duration must be a rental LENGTH (e.g. '3 days', 'per day') or omitted "
-            "entirely — never a calendar availability window like 'Sep 7 - Sep 30', which is "
-            "not a trip duration and must not be extracted into this field. If price_estimate "
-            "and duration are both unavailable/unclear from the source, leave provider populated "
-            "but set price_estimate and duration to null rather than guessing or copying an "
-            "unrelated number from the page."
-        )),
-        HumanMessage(content=json.dumps(_tavily_results(data))),
-    ], TransportOption)
+    opt = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "cheap", structured_llm, [
+            SystemMessage(content=(
+                "Extract a representative car rental option (mode='car') from this search data. "
+                f"This is a PICKUP LOCATION search for the metro area of '{origin_display}'. "
+                "Accept results for rentals anywhere in that city or its main airport, even if "
+                "the exact neighborhood/district name isn't mentioned verbatim — a rental listed "
+                "generally for the city is valid. Only treat it as not found if results are for a "
+                "clearly different city entirely.\n\n"
+                "IMPORTANT: duration must be a rental LENGTH (e.g. '3 days', 'per day') or omitted "
+                "entirely — never a calendar availability window like 'Sep 7 - Sep 30', which is "
+                "not a trip duration and must not be extracted into this field. If price_estimate "
+                "and duration are both unavailable/unclear from the source, leave provider populated "
+                "but set price_estimate and duration to null rather than guessing or copying an "
+                "unrelated number from the page."
+            )),
+            HumanMessage(content=json.dumps(_tavily_results(data))),
+        ], TransportOption)
 
     result = opt.model_dump()
     result["booking_url"] = None if not _is_plausible_url(result.get("booking_url")) else result.get("booking_url")
@@ -794,7 +797,7 @@ speed silently win by default:
   a single 5-hour direct bus.
 Return every option's index in your ranked_option_indices, best to worst — don't drop any."""
 
-def recommend_leg_options(state: LegTransportState):
+def recommend_leg_options(state: LegTransportState, config: RunnableConfig):
     current = [o for o in state["reconciled_options"] if not o.get("unresolved")]
     if not current:
         return {"options": [], "recommendation_reasoning": None}
@@ -803,11 +806,12 @@ def recommend_leg_options(state: LegTransportState):
     distance_note = f" (~{leg['distance_miles']:.0f} miles)" if leg.get("distance_miles") else ""
 
     structured_llm = llm.with_structured_output(LegRecommendation)
-    rec = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=recommendation_instructions),
-        HumanMessage(content=f"Leg: {leg['origin']} → {leg['destination']}{distance_note}\n"
-                              f"Options: {json.dumps(current)}"),
-    ], LegRecommendation)
+    rec = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=recommendation_instructions),
+            HumanMessage(content=f"Leg: {leg['origin']} → {leg['destination']}{distance_note}\n"
+                                  f"Options: {json.dumps(current)}"),
+        ], LegRecommendation)
 
     ranked = [current[i] for i in rec.ranked_option_indices if 0 <= i < len(current)]
     missing = [o for i, o in enumerate(current) if i not in rec.ranked_option_indices]

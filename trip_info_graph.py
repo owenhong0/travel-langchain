@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage, get_buffer_string, AIMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.memory import InMemorySaver
@@ -18,15 +19,18 @@ from langgraph.graph import StateGraph, MessagesState
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from cache_utils import cached_invoke_structured_with_retry, cached_invoke, cached_tavily_search
 from llm_config import get_llm
 
 load_dotenv()
 
 # llm = ChatAnthropic(model_name="claude-sonnet-5", thinking={"type": "disabled"})  # used for .with_structured_output(...) calls
 
-llm = get_llm("premium") # create_analysts, extract_candidates, order_destinations, compute_dates
-interview_llm = get_llm("mid") # generate_question, generate_answer, write_section
+llm = get_llm("premium")  # create_analysts, extract_candidates, order_destinations, compute_dates
+interview_llm = get_llm("mid")  # generate_question, generate_answer, write_section
 retryable_llm = llm.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)
+
+POSTGRES_URI = os.environ.get("POSTGRES_URI")
 
 
 # trip_info_graph.py
@@ -48,10 +52,11 @@ def invoke_structured_with_retry(structured_llm, messages, schema, attempts=3):
                     pass
             last_error = e
             time.sleep(2 ** i)
-        except (APIStatusError, ValueError) as e:   # ValueError catches malformed/empty streamed JSON
+        except (APIStatusError, ValueError) as e:  # ValueError catches malformed/empty streamed JSON
             last_error = e
             time.sleep(2 ** i)
     raise last_error
+
 
 class Analyst(BaseModel):
     affiliation: str = Field(
@@ -144,6 +149,7 @@ class DestinationInterviewState(MessagesState):
     interview: str
     sections: list
 
+
 class DestinationResearchState(TypedDict):
     trip_preferences: str
     max_analysts: int
@@ -216,27 +222,28 @@ budget and logistics, another on relaxation and comfort. Tailor the personas to 
 actually in the traveler's preferences rather than using generic categories that don't apply.
 
 2. Examine any editorial feedback that has been optionally provided to guide creation of the analysts: 
-        
+
 {human_analyst_feedback}
-    
+
 3. Determine the most interesting themes based upon documents and / or feedback above.
-                    
+
 4. Pick the top {max_analysts} themes.
 
 5. Assign one analyst to each theme."""
 
 
-def create_analysts(state: DestinationResearchState):
+def create_analysts(state: DestinationResearchState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(TravelAnalysts)
     system_message = analyst_instructions.format(
         trip_preferences=state["trip_preferences"],
         max_analysts=state.get("max_analysts", 5),
         human_analyst_feedback=state.get('human_analyst_feedback', '')
     )
-    analyst = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=system_message),
-        HumanMessage(content="Generate the analyst personas."),
-    ], TravelAnalysts)
+    analyst = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=system_message),
+            HumanMessage(content="Generate the analyst personas."),
+        ], TravelAnalysts)
     return {"analysts": analyst.analysts}
 
 
@@ -268,14 +275,17 @@ def _tavily_results(data) -> dict:
     return {}
 
 
-def search_gov_travel(state: DestinationInterviewState):
+def search_gov_travel(state: DestinationInterviewState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + as_incoming(state["messages"]) + [
         HumanMessage(content="Based on the conversation above, generate a search query.")
     ]
-    search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
-    tavily_search = TavilySearch(max_results=3, include_domains=GOV_TRAVEL_DOMAINS)
-    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
+    search_query = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, messages, SearchQuery)
+    data = _tavily_results(cached_tavily_search(
+        config, POSTGRES_URI, {"query": search_query.search_query, "include_images": True},
+        max_results=3, include_domains=GOV_TRAVEL_DOMAINS,
+    ))
     image_urls = data.get("images", [])
     docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
@@ -284,14 +294,17 @@ def search_gov_travel(state: DestinationInterviewState):
     return {"context": [formatted]}
 
 
-def search_travel_magazines(state: DestinationInterviewState):
+def search_travel_magazines(state: DestinationInterviewState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + state["messages"] + [
         HumanMessage(content="Based on the conversation above, generate a search query.")
     ]
-    search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
-    tavily_search = TavilySearch(max_results=3, include_domains=MAGAZINE_DOMAINS)
-    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
+    search_query = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, messages, SearchQuery)
+    data = _tavily_results(cached_tavily_search(
+        config, POSTGRES_URI, {"query": search_query.search_query, "include_images": True},
+        max_results=3, include_domains=MAGAZINE_DOMAINS,
+    ))
     image_urls = data.get("images", [])
     docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
@@ -300,14 +313,17 @@ def search_travel_magazines(state: DestinationInterviewState):
     return {"context": [formatted]}
 
 
-def search_unique_experiences(state: DestinationInterviewState):
+def search_unique_experiences(state: DestinationInterviewState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(SearchQuery)
     messages = [search_instructions] + state["messages"] + [
         HumanMessage(content="Based on the conversation above, generate a search query.")
     ]
-    search_query = invoke_structured_with_retry(structured_llm, messages, SearchQuery)
-    tavily_search = TavilySearch(max_results=3, include_domains=UNIQUE_EXPERIENCE_DOMAINS)
-    data = _tavily_results(tavily_search.invoke({"query": search_query.search_query, "include_images": True}))
+    search_query = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, messages, SearchQuery)
+    data = _tavily_results(cached_tavily_search(
+        config, POSTGRES_URI, {"query": search_query.search_query, "include_images": True},
+        max_results=3, include_domains=UNIQUE_EXPERIENCE_DOMAINS,
+    ))
     image_urls = data.get("images", [])
     docs = data.get("results", [])
     formatted = "\n\n---\n\n".join(
@@ -348,7 +364,7 @@ def as_incoming(messages: list) -> list:
     return converted
 
 
-def generate_question(state: DestinationInterviewState):
+def generate_question(state: DestinationInterviewState, config: RunnableConfig):
     analyst = state["analyst"]
     system_message = question_instructions.format(
         persona_name=analyst.persona_name,
@@ -356,16 +372,22 @@ def generate_question(state: DestinationInterviewState):
         description=analyst.description,
         trip_preferences=state["traveler_preferences"],
     )
-    question = retryable_llm.invoke([SystemMessage(content=system_message)] + as_incoming(state["messages"]))
+    question = cached_invoke(
+        config, POSTGRES_URI, "premium", retryable_llm,
+        [SystemMessage(content=system_message)] + as_incoming(state["messages"]),
+    )
     return {"messages": [question]}
 
 
-def generate_answer(state: DestinationInterviewState):
+def generate_answer(state: DestinationInterviewState, config: RunnableConfig):
     analyst = state["analyst"]
     messages = state["messages"]
     context = state["context"]
     system_message = answer_instructions.format(goals=analyst.persona, context=context)
-    answer = retryable_llm.invoke([SystemMessage(content=system_message)] + as_incoming(messages))
+    answer = cached_invoke(
+        config, POSTGRES_URI, "premium", retryable_llm,
+        [SystemMessage(content=system_message)] + as_incoming(messages),
+    )
     answer.name = "expert"
     return {"messages": [answer]}
 
@@ -464,18 +486,19 @@ destination's geography plus any cues in the source material (mentions of ferrie
 flights, or "island" language)."""
 
 
-def extract_candidates(state: DestinationResearchState):
+def extract_candidates(state: DestinationResearchState, config: RunnableConfig):
     sections = state["sections"]
     formatted = "\n\n".join(sections)
     structured_llm = llm.with_structured_output(DestinationOptions)
-    result = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=extraction_instructions),
-        HumanMessage(content=formatted),
-    ], DestinationOptions)
+    result = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=extraction_instructions),
+            HumanMessage(content=formatted),
+        ], DestinationOptions)
     return {"destination_candidates": [c.model_dump() for c in result.candidates]}
 
 
-def write_section(state: InterviewState):
+def write_section(state: InterviewState, config: RunnableConfig):
     """ Node to write a section """
 
     # Get state
@@ -485,8 +508,11 @@ def write_section(state: InterviewState):
 
     # Write section using either the gathered source docs from interview (context) or the interview itself (interview)
     system_message = section_writer_instructions.format(focus=analyst.description)
-    section = retryable_llm.invoke([SystemMessage(content=system_message)] + [
-        HumanMessage(content=f"Use this source to write your section: {context}")])
+    section = cached_invoke(
+        config, POSTGRES_URI, "premium", retryable_llm,
+        [SystemMessage(content=system_message),
+         HumanMessage(content=f"Use this source to write your section: {context}")],
+    )
 
     # Append it to state
     return {"sections": [section.content]}
@@ -581,7 +607,7 @@ def review_destinations(state: DestinationResearchState):
 
     if response["type"] == "finalize":
         return {
-            "finalized_destinations": response["chosen"], 
+            "finalized_destinations": response["chosen"],
             "review_decision": "finalize",
         }
     elif response["type"] == "revise":
@@ -655,20 +681,21 @@ class OrderedItinerary(BaseModel):
         return data
 
 
-def order_destinations(state: DestinationResearchState):
+def order_destinations(state: DestinationResearchState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(OrderedItinerary)
     feedback = state.get("order_feedback")
     feedback_block = f"\nTraveler feedback on the previous ordering: {feedback}" if feedback else ""
     expected = state["finalized_destinations"]
 
-    response = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=ordering_instructions),
-        HumanMessage(
-            content=f"Destinations ({len(expected)} total — every one of these must appear "
-                    f"exactly once in your output, none dropped): {expected}\n"
-                    f"Preferences: {state['trip_preferences']}{feedback_block}"
-        ),
-    ], OrderedItinerary)
+    response = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=ordering_instructions),
+            HumanMessage(
+                content=f"Destinations ({len(expected)} total — every one of these must appear "
+                        f"exactly once in your output, none dropped): {expected}\n"
+                        f"Preferences: {state['trip_preferences']}{feedback_block}"
+            ),
+        ], OrderedItinerary)
 
     stops = [stops.model_dump() for stops in response.ordered_destinations]
 
@@ -714,12 +741,12 @@ def review_order(state: DestinationResearchState):
     elif response["type"] == "drop":
         remaining = [s for i, s in enumerate(stops) if i not in response["drop_indices"]]
         return {
-            "ordered_destinations": remaining, 
+            "ordered_destinations": remaining,
             "order_decision": "finalize",
         }
     else:
         return {
-            "order_feedback": response["feedback"], 
+            "order_feedback": response["feedback"],
             "order_decision": "revise",
         }
 
@@ -741,7 +768,7 @@ def request_start_date(state: DestinationResearchState):
         start, end = start.strip(), end.strip()
         if start and end:
             return {
-                "trip_start_date": start, 
+                "trip_start_date": start,
                 "trip_end_date": end,
             }
         # loop repeats, interrupt fires again with the same message
@@ -764,18 +791,19 @@ recompute or guess it, just preserve what was given.
 """
 
 
-def compute_dates(state: DestinationResearchState):
+def compute_dates(state: DestinationResearchState, config: RunnableConfig):
     structured_llm = llm.with_structured_output(DatedItinerary)
     feedback = state.get("date_feedback")
     feedback_block = f"\nTraveler feedback on previous dates: {feedback}" if feedback else ""
     end_date = state.get("trip_end_date")
     end_date_block = f"\nHard end date (must be out of country by): {end_date}" if end_date else ""
 
-    result = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=dating_instructions),
-        HumanMessage(content=f"Trip start date: {state['trip_start_date']}{end_date_block}\n"
-                             f"Itinerary: {state['ordered_destinations']}{feedback_block}"),
-    ], DatedItinerary)
+    result = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=dating_instructions),
+            HumanMessage(content=f"Trip start date: {state['trip_start_date']}{end_date_block}\n"
+                                 f"Itinerary: {state['ordered_destinations']}{feedback_block}"),
+        ], DatedItinerary)
 
     stops = [s.model_dump() for s in result.stops]
 
@@ -804,7 +832,7 @@ def review_dates(state: DestinationResearchState):
         }
     feedback = text if text is not None else raw.get("feedback", "")
     return {
-        "date_feedback": feedback, 
+        "date_feedback": feedback,
         "date_decision": "revise",
     }
 

@@ -8,8 +8,62 @@ from psycopg.types.json import Jsonb
 from langchain_core.runnables import RunnableConfig
 from langchain_tavily import TavilySearch
 from langchain_tavily import TavilyExtract
+from langchain_core.messages import BaseMessage
 
 CACHE_SCHEMA_VERSION = os.environ.get("CACHE_SCHEMA_VERSION", "v1")
+
+def cached_invoke(config: RunnableConfig | None, conn_string: str, model_tag: str, chat_model, messages):
+    """Caches a plain .invoke() call (no schema/structured-output). Stores the
+    AIMessage's content + name only — reconstructs an AIMessage on cache hit."""
+    from langchain_core.messages import AIMessage
+
+    test_mode = (config or {}).get("configurable", {}).get("test_mode", False)
+    cache_args = {"model_tag": model_tag, "messages": _serialize_messages(messages)}
+
+    if test_mode:
+        cached = get_cached(conn_string, "llm_plain", cache_args)
+        if cached is not None:
+            return AIMessage(content=cached["content"], name=cached.get("name"))
+
+    result = chat_model.invoke(messages)
+
+    if test_mode:
+        store_cache(conn_string, "llm_plain", cache_args, {"content": result.content, "name": result.name})
+    return result
+
+def _serialize_messages(messages: list[BaseMessage]) -> list[dict]:
+    return [{"type": m.__class__.__name__, "content": m.content} for m in messages]
+
+def cached_invoke_structured_with_retry(
+    config: RunnableConfig | None,
+    conn_string: str,
+    model_tag: str,           # e.g. "premium", "mid", "cheap" — must match the tier
+                               # used to build structured_llm, so cache keys don't collide
+                               # across different models answering the same prompt
+    structured_llm,
+    messages: list[BaseMessage],
+    schema,
+    attempts: int = 3,
+):
+    from trip_info_graph import invoke_structured_with_retry  # local import avoids circular dep
+
+    test_mode = (config or {}).get("configurable", {}).get("test_mode", False)
+    cache_args = {
+        "model_tag": model_tag,
+        "schema": schema.__name__,
+        "messages": _serialize_messages(messages),
+    }
+
+    if test_mode:
+        cached = get_cached(conn_string, "llm_structured", cache_args)
+        if cached is not None:
+            return schema.model_validate(cached)
+
+    result = invoke_structured_with_retry(structured_llm, messages, schema, attempts=attempts)
+
+    if test_mode:
+        store_cache(conn_string, "llm_structured", cache_args, result.model_dump())
+    return result
 
 def cached_tavily_extract(config: RunnableConfig, conn_string: str, invoke_args: dict, **tool_kwargs):
     test_mode = (config or {}).get("configurable", {}).get("test_mode", False)
