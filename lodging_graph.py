@@ -18,7 +18,7 @@ from langgraph.graph import StateGraph
 from langgraph.types import Send, interrupt, Command
 from pydantic import BaseModel, Field
 
-from cache_utils import cached_tavily_search, cached_tavily_extract
+from cache_utils import cached_tavily_search, cached_tavily_extract, cached_invoke_structured_with_retry
 from llm_config import get_llm
 from main import duffel_city_country
 from trip_info_graph import (
@@ -529,7 +529,7 @@ discovering distinctive properties, not for verified pricing."""
 def _run_stay_search(config: RunnableConfig | None, leg: StayLeg, domains: list[str], type_label: str,
                       feedback: Optional[str], source: str, round_num: int,
                       extra_instructions: str = "", split_by_area: bool = True,
-                      search_llm: Optional[ChatOpenAI] = None) -> list[dict]:
+                      search_llm: Optional[ChatOpenAI] = None, model_tag: str = "cheap") -> list[dict]:
     base_city, areas = _parse_city_areas(leg["city"])
     # Chain-brand sources (Hyatt/Marriott/etc.) are a brand+city search, not neighborhood-scoped
     # the way Agoda/OTA listings are — splitting by area there just doubles calls for no new
@@ -573,10 +573,11 @@ def _run_stay_search(config: RunnableConfig | None, leg: StayLeg, domains: list[
             )
 
         structured_llm = resolved_llm.with_structured_output(StayOptions)
-        result = invoke_structured_with_retry(structured_llm, [
-            SystemMessage(content=stay_extraction_instructions + area_instructions),
-            HumanMessage(content=json.dumps(docs)),
-        ], StayOptions)
+        result = cached_invoke_structured_with_retry(
+            config, POSTGRES_URI, model_tag, structured_llm, [
+                SystemMessage(content=stay_extraction_instructions + area_instructions),
+                HumanMessage(content=json.dumps(docs)),
+            ], StayOptions)
 
         for opt in result.options:
             if opt.type not in leg["stay_types_requested"] and leg["stay_types_requested"] != ["hotel"]:
@@ -597,7 +598,7 @@ def search_agoda(state: StayLegState, config: RunnableConfig):
     domains = AGODA_DOMAIN + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
     options = _run_stay_search(config, leg, domains, type_label, state.get("review_feedback"),
                                "agoda", state.get("search_round", 0),
-                               search_llm=extraction_llm)
+                               search_llm=extraction_llm, model_tag="cheap")
     return {"raw_options": options}
 
 
@@ -605,7 +606,7 @@ def search_hotel_chains(state: StayLegState, config: RunnableConfig):
     leg = state["leg"]
     options = _run_stay_search(config, leg, HOTEL_CHAIN_DOMAINS, "hotel loyalty programme",
                                state.get("review_feedback"), "chain", state.get("search_round", 0),
-                               split_by_area=False, search_llm=extraction_llm)
+                               split_by_area=False, search_llm=extraction_llm, model_tag="cheap")
     return {"raw_options": options}
 
 
@@ -617,7 +618,7 @@ def search_general_ota(state: StayLegState, config: RunnableConfig):
     domains = _general_ota_domains(leg, config=config) + (HOSTEL_DOMAINS if "hostel" in leg["stay_types_requested"] else [])
     options = _run_stay_search(config, leg, domains, type_label, state.get("review_feedback"),
                                "general_ota", state.get("search_round", 0),
-                               search_llm=extraction_llm)
+                               search_llm=extraction_llm, model_tag="cheap")
     return {"raw_options": options}
 
 _editorial_llm = get_llm("mid")  # module-level, avoid re-instantiating per call
@@ -628,7 +629,7 @@ def search_unique_stays(state: StayLegState, config: RunnableConfig):
     options = _run_stay_search(config, leg, domains, "unique boutique stay", state.get("review_feedback"),
                                "editorial", state.get("search_round", 0),
                                extra_instructions=editorial_price_caveat,
-                               search_llm=_editorial_llm)
+                               search_llm=_editorial_llm, model_tag="mid")
     return {"raw_options": options}
 
 
@@ -671,10 +672,11 @@ def search_rates_direct(state: StayLegState, config: RunnableConfig):
                 continue
 
             structured_llm = extraction_llm.with_structured_output(StayOptions)
-            parsed = invoke_structured_with_retry(structured_llm, [
-                SystemMessage(content=rate_extraction_instructions + area_instructions),
-                HumanMessage(content=pages[0]["raw_content"][:8000]),
-            ], StayOptions)
+            parsed = cached_invoke_structured_with_retry(
+                config, POSTGRES_URI, "cheap", structured_llm, [
+                    SystemMessage(content=rate_extraction_instructions + area_instructions),
+                    HumanMessage(content=pages[0]["raw_content"][:8000]),
+                ], StayOptions)
 
             for opt in parsed.options:
                 d = opt.model_dump()
@@ -780,10 +782,11 @@ def enrich_points_value(state: StayLegState, config: RunnableConfig):
                 d["raw_content"] = d["raw_content"][:3000]
 
         structured_llm = extraction_llm.with_structured_output(PointsValue)
-        pv = invoke_structured_with_retry(structured_llm, [
-            SystemMessage(content=points_extraction_instructions),
-            HumanMessage(content=json.dumps(docs)),
-        ], PointsValue)
+        pv = cached_invoke_structured_with_retry(
+            config, POSTGRES_URI, "cheap", structured_llm, [
+                SystemMessage(content=points_extraction_instructions),
+                HumanMessage(content=json.dumps(docs)),
+            ], PointsValue)
         if pv.percent_bookable_with_points or pv.point_value_cents:
             enriched_by_name[opt["name"]] = pv.model_dump()
 
@@ -831,19 +834,20 @@ a trip, given all real options found. Consider genuine trade-offs a traveler wou
 Return every option's index in ranked_option_indices, best to worst — don't drop any."""
 
 
-def recommend_stay_options(state: StayLegState):
+def recommend_stay_options(state: StayLegState, config: RunnableConfig):
     current = state["reconciled_options"]
     if not current:
         return {"options": [], "recommendation_reasoning": None}
 
     structured_llm = llm.with_structured_output(StayRecommendation)
-    rec = invoke_structured_with_retry(structured_llm, [
-        SystemMessage(content=recommendation_instructions),
-        HumanMessage(content=f"Stop: {state['leg']['city']} ({state['leg']['check_in']} to "
-                             f"{state['leg']['check_out']}, {_nights(state['leg'])} nights)\n"
-                             f"Requested type(s): {state['leg']['stay_types_requested']}\n"
-                             f"Options: {json.dumps(current)}"),
-    ], StayRecommendation)
+    rec = cached_invoke_structured_with_retry(
+        config, POSTGRES_URI, "premium", structured_llm, [
+            SystemMessage(content=recommendation_instructions),
+            HumanMessage(content=f"Stop: {state['leg']['city']} ({state['leg']['check_in']} to "
+                                 f"{state['leg']['check_out']}, {_nights(state['leg'])} nights)\n"
+                                 f"Requested type(s): {state['leg']['stay_types_requested']}\n"
+                                 f"Options: {json.dumps(current)}"),
+        ], StayRecommendation)
 
     ranked = [current[i] for i in rec.ranked_option_indices if 0 <= i < len(current)]
     # safety net: if the model dropped any options from its ranking, append them at the end
