@@ -1,14 +1,14 @@
 // lib/fixtureClient.ts
 import type {TripClient, TripThreadState} from "../types/orchestrator";
 import type {Client} from "@langchain/langgraph-sdk";
+import {historyStates, fixtureName, state} from "./fixtureData.ts";
 
 
 const fixtures = import.meta.glob<TripThreadState>("../fixtures/*.json", {
   eager: true,
   import: "default",
 });
-const fixtureName = import.meta.env.VITE_FIXTURE ?? "completed_trip";
-const state = fixtures[`../fixtures/${fixtureName}.json`];
+
 if (!state) {
   throw new Error(
     `[fixtureClient] No fixture "${fixtureName}". Found: ${Object.keys(fixtures).join(", ")}`,
@@ -33,10 +33,7 @@ export function createFixtureClient(): TripClient {
                 console.log("[fixtureClient] threads.create called, returning", state.checkpoint.thread_id);
                 return {thread_id: state.checkpoint.thread_id} as unknown as Awaited<ReturnType<Client["threads"]["create"]>>;
             },
-            getHistory: async () => {
-                console.log("[fixtureClient] threads.getHistory called");
-                return [state];
-            },
+            getHistory: async () => [...historyStates].reverse(), // newest first, like the real API
         },
     };
 }

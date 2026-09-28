@@ -89,109 +89,9 @@
         "requires_flight_or_ferry": false
       }
     ],
-    "finalized_destinations": [
-      {
-        "city": "Yangyang",
-        "country": "South Korea",
-        "rationale": "Widely cited as Korea's surfing capital, home to Jukdo Beach, 38th Parallel Beach, Ingu Beach, Seorak Beach, Hajodae Rock Beach and the modern Surfyy Beach surf zone. Government sources (VisitKorea) highlight consistent 'good' wave quality in Sept-Oct and April with moderate depths and warmer winters, while a magazine/unique-experience source (Atlas Obscura) frames 38th Parallel Beach as a legendary weekend pilgrimage spot just 2.5-3 hours from Seoul, making it ideal for pairing surf trips with Seoul's dermatology circuit. Beachfront guesthouses and board rental infrastructure support multi-day sessions and easy recovery-friendly itineraries.",
-        "recommended_season": "September-October and April (secondary summer swell also viable)",
-        "recommended_duration_days_min": 3,
-        "recommended_duration_days_max": 5,
-        "date": "September-October or April",
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Jeju",
-        "country": "South Korea",
-        "rationale": "Government sources (VisitKorea) identify Jungmun Saekdal Beach as the birthplace of Korean surfing, with strong summer (May-August) winds and wide surf zones suitable for all skill levels; volcanic geography generates reliable local swell despite regional monsoon effects. A unique-experience/lodging angle (SONO Belle/SONO Calm) recommends beachfront stays for flexibility and notes Jeju works well for wave-focused trips paired with only gentle, non-invasive skincare treatments (no downtime) rather than aggressive dermatological procedures.",
-        "recommended_season": "Summer (May-August)",
-        "recommended_duration_days_min": 4,
-        "recommended_duration_days_max": 6,
-        "date": "May-August",
-        "requires_flight_or_ferry": true
-      },
-      {
-        "city": "Busan",
-        "country": "South Korea",
-        "rationale": "Government (VisitKorea) and magazine (AFAR) sources both spotlight Busan: Songjeong Beach hosts the Songjeong Surf & Groove Festival (July 14-19, 2025) for guaranteed summer swell and community energy, while Haeundae Beach's Park Hyatt offers a high-value Chase Ultimate Rewards-to-Hyatt transfer redemption with architectural pedigree (Daniel Libeskind) and strong cents-per-point value versus competing hotels. Best paired with lodging within 10 minutes of the surf break.",
-        "recommended_season": "July-August (festival window mid-July)",
-        "recommended_duration_days_min": 3,
-        "recommended_duration_days_max": 5,
-        "date": "July 14-19, 2025 or general July-August",
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Seoul",
-        "country": "South Korea",
-        "rationale": "Government sources (VisitKorea) emphasize Seoul's Gangnam-gu as a world-class, cost-effective dermatology hub (571 clinics citywide, 170 in Gangnam) for treatments like Ultherapy and laser resurfacing at 2-3x lower cost than Singapore or Japan. Multiple itineraries recommend basing here for clinic consultations and recovery (5-7 days for aggressive procedures, or shorter 2-3 day windows for low-downtime laser/facial treatments) before or after surf blocks in Yangyang, leveraging extended-hours clinics (e.g., NYUNYU Lab open until 11 PM) and air-conditioned recovery spaces like Myeongdong malls.",
-        "recommended_season": "Year-round",
-        "recommended_duration_days_min": 3,
-        "recommended_duration_days_max": 7,
-        "date": "Year-round, ideally bookended around a surf trip",
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Gyeongju",
-        "country": "South Korea",
-        "rationale": "Highlighted in a government/rewards-strategy source as Korea's former capital with distinct cultural experiences beyond Seoul; its IHG properties see lower peak-season demand, making it an efficient destination to deploy Chase-transferred IHG points at better redemption ratios than Seoul.",
-        "recommended_season": "Year-round (best value off-peak)",
-        "recommended_duration_days_min": 2,
-        "recommended_duration_days_max": 3,
-        "date": "Off-peak periods (outside major Korean holidays)",
-        "requires_flight_or_ferry": false
-      }
-    ],
-    "review_decision": "finalize",
-    "ordered_destinations": [
-      {
-        "city": "Seoul",
-        "country": "South Korea",
-        "recommended_duration_days": "3-4",
-        "purpose": "Arrival gateway via Incheon Int'l Airport; initial Gangnam dermatology consultation and first round of low-downtime treatments before heading to the coast for surfing",
-        "is_international_gateway": true,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Yangyang",
-        "country": "South Korea",
-        "recommended_duration_days": "3-5",
-        "purpose": "Closest surf destination to Seoul (2.5-3 hrs by road), ideal first surf block right after arrival while skin is fresh from initial gentle treatments",
-        "is_international_gateway": false,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Busan",
-        "country": "South Korea",
-        "recommended_duration_days": "3-5",
-        "purpose": "Continue south along the coast via train/road for the Songjeong Surf & Groove Festival and high-value Park Hyatt Haeundae Chase point redemption",
-        "is_international_gateway": true,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Gyeongju",
-        "country": "South Korea",
-        "recommended_duration_days": "2-3",
-        "purpose": "Short ground hop from Busan to soak in cultural sites and deploy Chase-transferred IHG points at favorable off-peak rates before the Jeju flight",
-        "is_international_gateway": false,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Jeju",
-        "country": "South Korea",
-        "recommended_duration_days": "4-6",
-        "purpose": "Fly out to Jeju for summer surf at Jungmun Saekdal Beach paired with gentle, no-downtime skincare, positioned mid-late trip since it requires a dedicated flight and shouldn't end the itinerary",
-        "is_international_gateway": true,
-        "requires_flight_or_ferry": true
-      },
-      {
-        "city": "Seoul",
-        "country": "South Korea",
-        "recommended_duration_days": "3-5",
-        "purpose": "Return to Seoul (flight back from Jeju) for final aggressive dermatology procedures needing recovery time, extended-hours clinic visits, shopping, and international departure from Incheon",
-        "is_international_gateway": true,
-        "requires_flight_or_ferry": false
-      }
-    ],
+    "finalized_destinations": [],
+    "review_decision": null,
+    "ordered_destinations": [],
     "order_decision": null,
     "order_feedback": null,
     "trip_start_date": null,
@@ -214,61 +114,63 @@
   ],
   "tasks": [
     {
-      "id": "order_review-task",
+      "id": "review_destinations-task",
       "name": "trip_info",
       "interrupts": [
         {
-          "id": "order_review-interrupt",
+          "id": "review_destinations-interrupt",
           "value": {
-            "type": "order_review",
-            "message": "Reply 'approve' to finalize, 'drop: <city, city>' to remove optional legs (e.g. 'drop: Busan, Jeju'), or describe other changes.",
-            "ordered_destinations": [
-              {
-                "city": "Seoul",
-                "country": "South Korea",
-                "recommended_duration_days": "3-4",
-                "purpose": "Arrival gateway via Incheon Int'l Airport; initial Gangnam dermatology consultation and first round of low-downtime treatments before heading to the coast for surfing",
-                "is_international_gateway": true,
-                "requires_flight_or_ferry": false
-              },
+            "type": "review_destinations",
+            "message": "Reply 'approve' (or leave blank) to take all of them, list indices or city/country names (comma-separated) to pick specific ones, or type anything else to revise your preferences.",
+            "destination_candidates": [
               {
                 "city": "Yangyang",
                 "country": "South Korea",
-                "recommended_duration_days": "3-5",
-                "purpose": "Closest surf destination to Seoul (2.5-3 hrs by road), ideal first surf block right after arrival while skin is fresh from initial gentle treatments",
-                "is_international_gateway": false,
-                "requires_flight_or_ferry": false
-              },
-              {
-                "city": "Busan",
-                "country": "South Korea",
-                "recommended_duration_days": "3-5",
-                "purpose": "Continue south along the coast via train/road for the Songjeong Surf & Groove Festival and high-value Park Hyatt Haeundae Chase point redemption",
-                "is_international_gateway": true,
-                "requires_flight_or_ferry": false
-              },
-              {
-                "city": "Gyeongju",
-                "country": "South Korea",
-                "recommended_duration_days": "2-3",
-                "purpose": "Short ground hop from Busan to soak in cultural sites and deploy Chase-transferred IHG points at favorable off-peak rates before the Jeju flight",
-                "is_international_gateway": false,
+                "rationale": "Widely cited as Korea's surfing capital, home to Jukdo Beach, 38th Parallel Beach, Ingu Beach, Seorak Beach, Hajodae Rock Beach and the modern Surfyy Beach surf zone. Government sources (VisitKorea) highlight consistent 'good' wave quality in Sept-Oct and April with moderate depths and warmer winters, while a magazine/unique-experience source (Atlas Obscura) frames 38th Parallel Beach as a legendary weekend pilgrimage spot just 2.5-3 hours from Seoul, making it ideal for pairing surf trips with Seoul's dermatology circuit. Beachfront guesthouses and board rental infrastructure support multi-day sessions and easy recovery-friendly itineraries.",
+                "recommended_season": "September-October and April (secondary summer swell also viable)",
+                "recommended_duration_days_min": 3,
+                "recommended_duration_days_max": 5,
+                "date": "September-October or April",
                 "requires_flight_or_ferry": false
               },
               {
                 "city": "Jeju",
                 "country": "South Korea",
-                "recommended_duration_days": "4-6",
-                "purpose": "Fly out to Jeju for summer surf at Jungmun Saekdal Beach paired with gentle, no-downtime skincare, positioned mid-late trip since it requires a dedicated flight and shouldn't end the itinerary",
-                "is_international_gateway": true,
+                "rationale": "Government sources (VisitKorea) identify Jungmun Saekdal Beach as the birthplace of Korean surfing, with strong summer (May-August) winds and wide surf zones suitable for all skill levels; volcanic geography generates reliable local swell despite regional monsoon effects. A unique-experience/lodging angle (SONO Belle/SONO Calm) recommends beachfront stays for flexibility and notes Jeju works well for wave-focused trips paired with only gentle, non-invasive skincare treatments (no downtime) rather than aggressive dermatological procedures.",
+                "recommended_season": "Summer (May-August)",
+                "recommended_duration_days_min": 4,
+                "recommended_duration_days_max": 6,
+                "date": "May-August",
                 "requires_flight_or_ferry": true
+              },
+              {
+                "city": "Busan",
+                "country": "South Korea",
+                "rationale": "Government (VisitKorea) and magazine (AFAR) sources both spotlight Busan: Songjeong Beach hosts the Songjeong Surf & Groove Festival (July 14-19, 2025) for guaranteed summer swell and community energy, while Haeundae Beach's Park Hyatt offers a high-value Chase Ultimate Rewards-to-Hyatt transfer redemption with architectural pedigree (Daniel Libeskind) and strong cents-per-point value versus competing hotels. Best paired with lodging within 10 minutes of the surf break.",
+                "recommended_season": "July-August (festival window mid-July)",
+                "recommended_duration_days_min": 3,
+                "recommended_duration_days_max": 5,
+                "date": "July 14-19, 2025 or general July-August",
+                "requires_flight_or_ferry": false
               },
               {
                 "city": "Seoul",
                 "country": "South Korea",
-                "recommended_duration_days": "3-5",
-                "purpose": "Return to Seoul (flight back from Jeju) for final aggressive dermatology procedures needing recovery time, extended-hours clinic visits, shopping, and international departure from Incheon",
-                "is_international_gateway": true,
+                "rationale": "Government sources (VisitKorea) emphasize Seoul's Gangnam-gu as a world-class, cost-effective dermatology hub (571 clinics citywide, 170 in Gangnam) for treatments like Ultherapy and laser resurfacing at 2-3x lower cost than Singapore or Japan. Multiple itineraries recommend basing here for clinic consultations and recovery (5-7 days for aggressive procedures, or shorter 2-3 day windows for low-downtime laser/facial treatments) before or after surf blocks in Yangyang, leveraging extended-hours clinics (e.g., NYUNYU Lab open until 11 PM) and air-conditioned recovery spaces like Myeongdong malls.",
+                "recommended_season": "Year-round",
+                "recommended_duration_days_min": 3,
+                "recommended_duration_days_max": 7,
+                "date": "Year-round, ideally bookended around a surf trip",
+                "requires_flight_or_ferry": false
+              },
+              {
+                "city": "Gyeongju",
+                "country": "South Korea",
+                "rationale": "Highlighted in a government/rewards-strategy source as Korea's former capital with distinct cultural experiences beyond Seoul; its IHG properties see lower peak-season demand, making it an efficient destination to deploy Chase-transferred IHG points at better redemption ratios than Seoul.",
+                "recommended_season": "Year-round (best value off-peak)",
+                "recommended_duration_days_min": 2,
+                "recommended_duration_days_max": 3,
+                "date": "Off-peak periods (outside major Korean holidays)",
                 "requires_flight_or_ferry": false
               }
             ]
@@ -299,68 +201,70 @@
   },
   "created_at": "2026-09-17T17:58:49.189583+00:00",
   "checkpoint": {
-    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000003",
+    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000002",
     "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
     "checkpoint_ns": ""
   },
   "parent_checkpoint": {
-    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000002",
+    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000001",
     "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
     "checkpoint_ns": ""
   },
   "interrupts": [
     {
-      "id": "order_review-interrupt",
+      "id": "review_destinations-interrupt",
       "value": {
-        "type": "order_review",
-        "message": "Reply 'approve' to finalize, 'drop: <city, city>' to remove optional legs (e.g. 'drop: Busan, Jeju'), or describe other changes.",
-        "ordered_destinations": [
-          {
-            "city": "Seoul",
-            "country": "South Korea",
-            "recommended_duration_days": "3-4",
-            "purpose": "Arrival gateway via Incheon Int'l Airport; initial Gangnam dermatology consultation and first round of low-downtime treatments before heading to the coast for surfing",
-            "is_international_gateway": true,
-            "requires_flight_or_ferry": false
-          },
+        "type": "review_destinations",
+        "message": "Reply 'approve' (or leave blank) to take all of them, list indices or city/country names (comma-separated) to pick specific ones, or type anything else to revise your preferences.",
+        "destination_candidates": [
           {
             "city": "Yangyang",
             "country": "South Korea",
-            "recommended_duration_days": "3-5",
-            "purpose": "Closest surf destination to Seoul (2.5-3 hrs by road), ideal first surf block right after arrival while skin is fresh from initial gentle treatments",
-            "is_international_gateway": false,
-            "requires_flight_or_ferry": false
-          },
-          {
-            "city": "Busan",
-            "country": "South Korea",
-            "recommended_duration_days": "3-5",
-            "purpose": "Continue south along the coast via train/road for the Songjeong Surf & Groove Festival and high-value Park Hyatt Haeundae Chase point redemption",
-            "is_international_gateway": true,
-            "requires_flight_or_ferry": false
-          },
-          {
-            "city": "Gyeongju",
-            "country": "South Korea",
-            "recommended_duration_days": "2-3",
-            "purpose": "Short ground hop from Busan to soak in cultural sites and deploy Chase-transferred IHG points at favorable off-peak rates before the Jeju flight",
-            "is_international_gateway": false,
+            "rationale": "Widely cited as Korea's surfing capital, home to Jukdo Beach, 38th Parallel Beach, Ingu Beach, Seorak Beach, Hajodae Rock Beach and the modern Surfyy Beach surf zone. Government sources (VisitKorea) highlight consistent 'good' wave quality in Sept-Oct and April with moderate depths and warmer winters, while a magazine/unique-experience source (Atlas Obscura) frames 38th Parallel Beach as a legendary weekend pilgrimage spot just 2.5-3 hours from Seoul, making it ideal for pairing surf trips with Seoul's dermatology circuit. Beachfront guesthouses and board rental infrastructure support multi-day sessions and easy recovery-friendly itineraries.",
+            "recommended_season": "September-October and April (secondary summer swell also viable)",
+            "recommended_duration_days_min": 3,
+            "recommended_duration_days_max": 5,
+            "date": "September-October or April",
             "requires_flight_or_ferry": false
           },
           {
             "city": "Jeju",
             "country": "South Korea",
-            "recommended_duration_days": "4-6",
-            "purpose": "Fly out to Jeju for summer surf at Jungmun Saekdal Beach paired with gentle, no-downtime skincare, positioned mid-late trip since it requires a dedicated flight and shouldn't end the itinerary",
-            "is_international_gateway": true,
+            "rationale": "Government sources (VisitKorea) identify Jungmun Saekdal Beach as the birthplace of Korean surfing, with strong summer (May-August) winds and wide surf zones suitable for all skill levels; volcanic geography generates reliable local swell despite regional monsoon effects. A unique-experience/lodging angle (SONO Belle/SONO Calm) recommends beachfront stays for flexibility and notes Jeju works well for wave-focused trips paired with only gentle, non-invasive skincare treatments (no downtime) rather than aggressive dermatological procedures.",
+            "recommended_season": "Summer (May-August)",
+            "recommended_duration_days_min": 4,
+            "recommended_duration_days_max": 6,
+            "date": "May-August",
             "requires_flight_or_ferry": true
+          },
+          {
+            "city": "Busan",
+            "country": "South Korea",
+            "rationale": "Government (VisitKorea) and magazine (AFAR) sources both spotlight Busan: Songjeong Beach hosts the Songjeong Surf & Groove Festival (July 14-19, 2025) for guaranteed summer swell and community energy, while Haeundae Beach's Park Hyatt offers a high-value Chase Ultimate Rewards-to-Hyatt transfer redemption with architectural pedigree (Daniel Libeskind) and strong cents-per-point value versus competing hotels. Best paired with lodging within 10 minutes of the surf break.",
+            "recommended_season": "July-August (festival window mid-July)",
+            "recommended_duration_days_min": 3,
+            "recommended_duration_days_max": 5,
+            "date": "July 14-19, 2025 or general July-August",
+            "requires_flight_or_ferry": false
           },
           {
             "city": "Seoul",
             "country": "South Korea",
-            "recommended_duration_days": "3-5",
-            "purpose": "Return to Seoul (flight back from Jeju) for final aggressive dermatology procedures needing recovery time, extended-hours clinic visits, shopping, and international departure from Incheon",
-            "is_international_gateway": true,
+            "rationale": "Government sources (VisitKorea) emphasize Seoul's Gangnam-gu as a world-class, cost-effective dermatology hub (571 clinics citywide, 170 in Gangnam) for treatments like Ultherapy and laser resurfacing at 2-3x lower cost than Singapore or Japan. Multiple itineraries recommend basing here for clinic consultations and recovery (5-7 days for aggressive procedures, or shorter 2-3 day windows for low-downtime laser/facial treatments) before or after surf blocks in Yangyang, leveraging extended-hours clinics (e.g., NYUNYU Lab open until 11 PM) and air-conditioned recovery spaces like Myeongdong malls.",
+            "recommended_season": "Year-round",
+            "recommended_duration_days_min": 3,
+            "recommended_duration_days_max": 7,
+            "date": "Year-round, ideally bookended around a surf trip",
+            "requires_flight_or_ferry": false
+          },
+          {
+            "city": "Gyeongju",
+            "country": "South Korea",
+            "rationale": "Highlighted in a government/rewards-strategy source as Korea's former capital with distinct cultural experiences beyond Seoul; its IHG properties see lower peak-season demand, making it an efficient destination to deploy Chase-transferred IHG points at better redemption ratios than Seoul.",
+            "recommended_season": "Year-round (best value off-peak)",
+            "recommended_duration_days_min": 2,
+            "recommended_duration_days_max": 3,
+            "date": "Off-peak periods (outside major Korean holidays)",
             "requires_flight_or_ferry": false
           }
         ]

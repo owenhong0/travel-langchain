@@ -45,6 +45,28 @@ interface FixtureSpec {
 
 const specs: FixtureSpec[] = [
     {
+        name: "human_feedback",
+        node: "trip_info",
+        resolved: ["trip_preferences", "analysts"],
+        interrupt: {
+            type: "human_feedback",
+            message: "Review the proposed analyst panel. Reply 'approve' to proceed, or give feedback to revise the panel.",
+            analysts: completed.values.analysts.map(
+                (a) => `Focus: ${a.focus_area}\nName: ${a.persona_name}\nDescription: ${a.description}\n`,
+            ),
+        },
+    },
+    {
+        name: "review_destinations",
+        node: "trip_info",
+        resolved: ["trip_preferences", "analysts", "sections", "human_analyst_feedback", "destination_candidates"],
+        interrupt: {
+            type: "review_destinations",
+            message: "Reply 'approve' (or leave blank) to take all of them, list indices or city/country names (comma-separated) to pick specific ones, or type anything else to revise your preferences.",
+            destination_candidates: completed.values.destination_candidates,
+        },
+    },
+    {
         name: "order_review",
         node: "trip_info",
         resolved: [
@@ -62,7 +84,13 @@ const specs: FixtureSpec[] = [
     },
 ];
 
-function build(spec: FixtureSpec): TripThreadState {
+const checkpoint = (n: number) => ({
+    checkpoint_id: `1f1b2c00-0000-6000-8000-${String(n).padStart(12, "0")}`,
+    thread_id: completed.checkpoint.thread_id,
+    checkpoint_ns: "",
+});
+
+function build(spec: FixtureSpec,  index: number): TripThreadState {
     const values: Record<string, unknown> = {...BASELINE};
     for (const field of spec.resolved) {
         if (!(field in completed.values)) {
@@ -78,6 +106,8 @@ function build(spec: FixtureSpec): TripThreadState {
     const pending = {id: `${spec.name}-interrupt`, value: spec.interrupt};
     return {
         ...completed,
+        checkpoint: checkpoint(index + 1),
+        parent_checkpoint: index === 0 ? null : checkpoint(index),
         metadata,
         values: values as InitialTripState,
         next: [spec.node],
@@ -86,7 +116,7 @@ function build(spec: FixtureSpec): TripThreadState {
     } as TripThreadState;
 }
 
-for (const spec of specs) {
-    fs.writeFileSync(`src/fixtures/${spec.name}.json`, JSON.stringify(build(spec), null, 2));
-    console.log(`wrote src/fixtures/${spec.name}.json`);
-}
+specs.forEach((spec, index) => {
+  fs.writeFileSync(`src/fixtures/${spec.name}.json`, JSON.stringify(build(spec, index), null, 2));
+  console.log(`wrote src/fixtures/${spec.name}.json`);
+});
