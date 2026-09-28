@@ -1,6 +1,7 @@
 {
   "values": {
     "trip_preferences": "hey i wanna take a surf trip to korea and also wanted to get my skin care done at the same time using my chase points for hotels, can you help?",
+    "max_analysts": 5,
     "analysts": [
       {
         "focus_area": "Korea Surf Conditions & Logistics",
@@ -192,611 +193,90 @@
       }
     ],
     "order_decision": "finalize",
-    "trip_start_date": "2026-10-10",
-    "trip_end_date": "2026-11-11",
-    "dated_itinerary": [
-      {
-        "city": "Seoul",
-        "country": "South Korea",
-        "depart_date": "2026-10-10",
-        "return_date": "2026-10-13",
-        "duration_days": 4,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Yangyang",
-        "country": "South Korea",
-        "depart_date": "2026-10-14",
-        "return_date": "2026-10-18",
-        "duration_days": 5,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Busan",
-        "country": "South Korea",
-        "depart_date": "2026-10-19",
-        "return_date": "2026-10-23",
-        "duration_days": 5,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Gyeongju",
-        "country": "South Korea",
-        "depart_date": "2026-10-24",
-        "return_date": "2026-10-26",
-        "duration_days": 3,
-        "requires_flight_or_ferry": false
-      },
-      {
-        "city": "Jeju",
-        "country": "South Korea",
-        "depart_date": "2026-10-27",
-        "return_date": "2026-11-01",
-        "duration_days": 6,
-        "requires_flight_or_ferry": true
-      },
-      {
-        "city": "Seoul",
-        "country": "South Korea",
-        "depart_date": "2026-11-02",
-        "return_date": "2026-11-06",
-        "duration_days": 5,
-        "requires_flight_or_ferry": false
-      }
-    ],
-    "date_decision": "finalize",
+    "order_feedback": null,
+    "trip_start_date": null,
+    "trip_end_date": null,
+    "dated_itinerary": [],
+    "date_decision": null,
+    "date_feedback": null,
     "loyalty_programmes": [],
-    "home_city": "Boston",
-    "home_country": "US",
-    "return_city": "Boston",
-    "return_country": "US",
-    "legs": [
-      {
-        "origin": "Boston",
-        "destination": "Seoul",
-        "origin_country": "US",
-        "destination_country": "KR",
-        "depart_date": "2026-10-10",
-        "requires_flight_or_ferry": true,
-        "leg_type": "arrival",
-        "modes_requested": [
-          "flight"
-        ],
-        "distance_miles": 6802.831561692572
-      },
-      {
-        "origin": "Seoul",
-        "destination": "Yangyang",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-13",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "train",
-          "bus",
-          "car"
-        ],
-        "distance_miles": 107.96770204768451
-      },
-      {
-        "origin": "Yangyang",
-        "destination": "Busan",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-18",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "train",
-          "bus"
-        ],
-        "distance_miles": 200.03188110969768
-      },
-      {
-        "origin": "Busan",
-        "destination": "Gyeongju",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-23",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "train",
-          "bus",
-          "car"
-        ],
-        "distance_miles": null
-      },
-      {
-        "origin": "Gyeongju",
-        "destination": "Jeju",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-26",
-        "requires_flight_or_ferry": true,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "ferry"
-        ],
-        "distance_miles": null
-      },
-      {
-        "origin": "Jeju",
-        "destination": "Seoul",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-11-01",
-        "requires_flight_or_ferry": true,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "ferry"
-        ],
-        "distance_miles": 280.17629665443616
-      },
-      {
-        "origin": "Seoul",
-        "destination": "Boston",
-        "origin_country": "KR",
-        "destination_country": "US",
-        "depart_date": "2026-11-06",
-        "requires_flight_or_ferry": true,
-        "leg_type": "departure",
-        "modes_requested": [
-          "flight"
-        ],
-        "distance_miles": 6802.831561692572
-      }
-    ],
-    "finalized_legs": [
-      {
-        "origin": "Boston",
-        "destination": "Seoul",
-        "origin_country": "US",
-        "destination_country": "KR",
-        "depart_date": "2026-10-10",
-        "requires_flight_or_ferry": true,
-        "leg_type": "arrival",
-        "modes_requested": [
-          "flight"
-        ],
-        "distance_miles": 6802.831561692572,
-        "selected": {
-          "mode": "flight",
-          "provider": "Duffel Airways",
-          "price_estimate": "425.57 USD",
-          "duration": "PT15H10M",
-          "booking_url": null,
-          "segments": null,
-          "round": 0,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "origin": "Seoul",
-        "destination": "Yangyang",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-13",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "train",
-          "bus",
-          "car"
-        ],
-        "distance_miles": 107.96770204768451,
-        "selected": {
-          "mode": "bus",
-          "provider": "Ko Bus",
-          "price_estimate": "£9–16",
-          "duration": "3h 7m",
-          "booking_url": null,
-          "segments": null,
-          "source": "rome2rio",
-          "round": 0,
-          "confidence": "corroborated"
-        }
-      },
-      {
-        "origin": "Yangyang",
-        "destination": "Busan",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-18",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "train",
-          "bus"
-        ],
-        "distance_miles": 200.03188110969768,
-        "selected": {
-          "mode": "flight",
-          "provider": "Duffel Airways",
-          "price_estimate": "41.78 USD",
-          "duration": "PT1H",
-          "booking_url": null,
-          "segments": null,
-          "round": 0,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "origin": "Busan",
-        "destination": "Gyeongju",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-23",
-        "requires_flight_or_ferry": false,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "train",
-          "bus",
-          "car"
-        ],
-        "distance_miles": null,
-        "selected": {
-          "mode": "train",
-          "provider": "KTX (Korail)",
-          "price_estimate": "from 19 USD",
-          "duration": "27 min",
-          "booking_url": "https://www.koreantrain.com/train-busan-gyeongju",
-          "segments": null,
-          "source": "rome2rio",
-          "round": 0,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "origin": "Gyeongju",
-        "destination": "Jeju",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-10-26",
-        "requires_flight_or_ferry": true,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "ferry"
-        ],
-        "distance_miles": null,
-        "selected": {
-          "mode": "flight",
-          "provider": "Duffel Airways",
-          "price_estimate": "42.5 USD",
-          "duration": "PT1H4M",
-          "booking_url": null,
-          "segments": null,
-          "round": 0,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "origin": "Jeju",
-        "destination": "Seoul",
-        "origin_country": "KR",
-        "destination_country": "KR",
-        "depart_date": "2026-11-01",
-        "requires_flight_or_ferry": true,
-        "leg_type": "internal",
-        "modes_requested": [
-          "flight",
-          "ferry"
-        ],
-        "distance_miles": 280.17629665443616,
-        "selected": {
-          "mode": "flight",
-          "provider": "Duffel Airways",
-          "price_estimate": "45.64 USD",
-          "duration": "PT1H11M",
-          "booking_url": null,
-          "segments": null,
-          "round": 0,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "origin": "Seoul",
-        "destination": "Boston",
-        "origin_country": "KR",
-        "destination_country": "US",
-        "depart_date": "2026-11-06",
-        "requires_flight_or_ferry": true,
-        "leg_type": "departure",
-        "modes_requested": [
-          "flight"
-        ],
-        "distance_miles": 6802.831561692572,
-        "selected": {
-          "mode": "flight",
-          "provider": "Duffel Airways",
-          "price_estimate": "403.04 USD",
-          "duration": "PT15H10M",
-          "booking_url": null,
-          "segments": null,
-          "round": 0,
-          "confidence": "unverified"
-        }
-      }
-    ],
-    "stay_legs": [
-      {
-        "city": "Seoul",
-        "country": "KR",
-        "check_in": "2026-10-10",
-        "check_out": "2026-10-13",
-        "duration_days": 4,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      },
-      {
-        "city": "Yangyang",
-        "country": "KR",
-        "check_in": "2026-10-14",
-        "check_out": "2026-10-18",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      },
-      {
-        "city": "Busan",
-        "country": "KR",
-        "check_in": "2026-10-19",
-        "check_out": "2026-10-23",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      },
-      {
-        "city": "Gyeongju",
-        "country": "KR",
-        "check_in": "2026-10-24",
-        "check_out": "2026-10-26",
-        "duration_days": 3,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      },
-      {
-        "city": "Jeju",
-        "country": "KR",
-        "check_in": "2026-10-27",
-        "check_out": "2026-11-01",
-        "duration_days": 6,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      },
-      {
-        "city": "Seoul",
-        "country": "KR",
-        "check_in": "2026-11-02",
-        "check_out": "2026-11-06",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": []
-      }
-    ],
-    "finalized_stays": [
-      {
-        "city": "Seoul",
-        "country": "KR",
-        "check_in": "2026-10-10",
-        "check_out": "2026-10-13",
-        "duration_days": 4,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "hotel",
-          "name": "Seoul City Hotel",
-          "area": "Myeong-dong",
-          "price_estimate": "between $76 and $100",
-          "price_amount": 88,
-          "price_currency": "USD",
-          "price_amount_min": 76,
-          "price_amount_max": 100,
-          "price_type": "per_night",
-          "rating": "7.8",
-          "booking_url": "https://www.agoda.com/seoul-city-hotel/hotel/seoul-kr.html",
-          "brand_classification": "boutique",
-          "price_usd": 88,
-          "price_per_night_usd": 88,
-          "total_cost_usd": 264,
-          "source": "agoda",
-          "round": 0,
-          "search_query": "Seoul hotel Oct 10–Oct 13, 2026 (3 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "city": "Yangyang",
-        "country": "KR",
-        "check_in": "2026-10-14",
-        "check_out": "2026-10-18",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "resort",
-          "name": "The N Resort Hotel and Spa Yangyang",
-          "area": null,
-          "price_estimate": "$152 per room",
-          "price_amount": 152,
-          "price_currency": "USD",
-          "price_amount_min": null,
-          "price_amount_max": null,
-          "price_type": "per_night",
-          "rating": "",
-          "booking_url": "https://www.agoda.com/the-n-resort-hotel-and-spa-yangyang/hotel/yangyang-kr.html",
-          "brand_classification": "boutique",
-          "price_usd": 152,
-          "price_per_night_usd": 152,
-          "total_cost_usd": 608,
-          "source": "agoda",
-          "round": 0,
-          "search_query": "Yangyang hotel Oct 14–Oct 18, 2026 (4 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "city": "Busan",
-        "country": "KR",
-        "check_in": "2026-10-19",
-        "check_out": "2026-10-23",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "hotel",
-          "name": "Airport Hotel Busan",
-          "area": "Busan",
-          "price_estimate": "between 51 and 75 dollars per night",
-          "price_amount": 63,
-          "price_currency": "USD",
-          "price_amount_min": 51,
-          "price_amount_max": 75,
-          "price_type": "per_night",
-          "rating": null,
-          "booking_url": "https://www.agoda.com/airport-hotel-busan/hotel/busan-kr.html",
-          "brand_classification": "independent_local",
-          "price_usd": 63,
-          "price_per_night_usd": 63,
-          "total_cost_usd": 252,
-          "source": "agoda",
-          "round": 0,
-          "search_query": "Busan hotel Oct 19–Oct 23, 2026 (4 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "city": "Gyeongju",
-        "country": "KR",
-        "check_in": "2026-10-24",
-        "check_out": "2026-10-26",
-        "duration_days": 3,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "hotel",
-          "name": "The-K Hotel Gyeongju",
-          "area": "Gyeongju",
-          "price_estimate": null,
-          "price_amount": null,
-          "price_currency": null,
-          "price_amount_min": null,
-          "price_amount_max": null,
-          "price_type": "unknown",
-          "rating": null,
-          "booking_url": "https://www.tripadvisor.com/Hotel_Feature-g297888-d2653669-zft1-The_K_Hotel_Gyeongju.html",
-          "brand_classification": "local_chain",
-          "price_usd": null,
-          "price_per_night_usd": null,
-          "total_cost_usd": null,
-          "source": "general_ota",
-          "round": 0,
-          "search_query": "Gyeongju hotel Oct 24–Oct 26, 2026 (2 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "city": "Jeju",
-        "country": "KR",
-        "check_in": "2026-10-27",
-        "check_out": "2026-11-01",
-        "duration_days": 6,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "hotel",
-          "name": "Jeju Aerospace Hotel",
-          "area": "Seogwipo, Jeju",
-          "price_estimate": "average nightly rates ranging from 51 to 75 dollars",
-          "price_amount": 63,
-          "price_currency": "USD",
-          "price_amount_min": 51,
-          "price_amount_max": 75,
-          "price_type": "per_night",
-          "rating": "8.4",
-          "booking_url": "https://www.agoda.com/jeju-aerospace-hotel/hotel/jeju-island-kr.html",
-          "brand_classification": "independent_local",
-          "price_usd": 63,
-          "price_per_night_usd": 63,
-          "total_cost_usd": 315,
-          "source": "agoda",
-          "round": 0,
-          "search_query": "Jeju hotel Oct 27–Nov 01, 2026 (5 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      },
-      {
-        "city": "Seoul",
-        "country": "KR",
-        "check_in": "2026-11-02",
-        "check_out": "2026-11-06",
-        "duration_days": 5,
-        "stay_types_requested": [
-          "hotel"
-        ],
-        "loyalty_programmes": [],
-        "selected": {
-          "type": "hotel",
-          "name": "Stay Hotel Gangnam",
-          "area": "Gangnam",
-          "price_estimate": "$130",
-          "price_amount": 130,
-          "price_currency": "USD",
-          "price_amount_min": null,
-          "price_amount_max": null,
-          "price_type": "per_night",
-          "rating": "8.3",
-          "booking_url": "https://www.agoda.com/stay-hotel-gangnam/hotel/seoul-kr.html",
-          "brand_classification": "independent_local",
-          "price_usd": 130,
-          "price_per_night_usd": 130,
-          "total_cost_usd": 520,
-          "source": "agoda",
-          "round": 0,
-          "search_query": "Seoul hotel Nov 02–Nov 06, 2026 (4 nights) nightly rate",
-          "matched_area": null,
-          "confidence": "unverified"
-        }
-      }
-    ]
+    "home_city": "",
+    "home_country": "",
+    "return_city": "",
+    "return_country": "",
+    "legs": [],
+    "finalized_legs": [],
+    "stay_legs": [],
+    "finalized_stays": []
   },
-  "next": [],
-  "tasks": [],
+  "next": [
+    "trip_info"
+  ],
+  "tasks": [
+    {
+      "id": "start_date_request-task",
+      "name": "trip_info",
+      "interrupts": [
+        {
+          "id": "start_date_request-interrupt",
+          "value": {
+            "type": "start_date_request",
+            "message": "Earliest departure date and latest return/must-leave date, both required (YYYY-MM-DD, YYYY-MM-DD):",
+            "ordered_destinations": [
+              {
+                "city": "Seoul",
+                "country": "South Korea",
+                "recommended_duration_days": "3-4",
+                "purpose": "Arrival gateway via Incheon Int'l Airport; initial Gangnam dermatology consultation and first round of low-downtime treatments before heading to the coast for surfing",
+                "is_international_gateway": true,
+                "requires_flight_or_ferry": false
+              },
+              {
+                "city": "Yangyang",
+                "country": "South Korea",
+                "recommended_duration_days": "3-5",
+                "purpose": "Closest surf destination to Seoul (2.5-3 hrs by road), ideal first surf block right after arrival while skin is fresh from initial gentle treatments",
+                "is_international_gateway": false,
+                "requires_flight_or_ferry": false
+              },
+              {
+                "city": "Busan",
+                "country": "South Korea",
+                "recommended_duration_days": "3-5",
+                "purpose": "Continue south along the coast via train/road for the Songjeong Surf & Groove Festival and high-value Park Hyatt Haeundae Chase point redemption",
+                "is_international_gateway": true,
+                "requires_flight_or_ferry": false
+              },
+              {
+                "city": "Gyeongju",
+                "country": "South Korea",
+                "recommended_duration_days": "2-3",
+                "purpose": "Short ground hop from Busan to soak in cultural sites and deploy Chase-transferred IHG points at favorable off-peak rates before the Jeju flight",
+                "is_international_gateway": false,
+                "requires_flight_or_ferry": false
+              },
+              {
+                "city": "Jeju",
+                "country": "South Korea",
+                "recommended_duration_days": "4-6",
+                "purpose": "Fly out to Jeju for summer surf at Jungmun Saekdal Beach paired with gentle, no-downtime skincare, positioned mid-late trip since it requires a dedicated flight and shouldn't end the itinerary",
+                "is_international_gateway": true,
+                "requires_flight_or_ferry": true
+              },
+              {
+                "city": "Seoul",
+                "country": "South Korea",
+                "recommended_duration_days": "3-5",
+                "purpose": "Return to Seoul (flight back from Jeju) for final aggressive dermatology procedures needing recovery time, extended-hours clinic visits, shopping, and international departure from Incheon",
+                "is_international_gateway": true,
+                "requires_flight_or_ferry": false
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
   "metadata": {
     "graph_id": "orchestrator",
     "assistant_id": "224cf0be-a5c6-522f-86f0-b84379f45109",
@@ -819,16 +299,74 @@
   },
   "created_at": "2026-09-17T17:58:49.189583+00:00",
   "checkpoint": {
-    "checkpoint_id": "1f1b2c16-f5b8-60b6-8004-ccf27a626bd4",
+    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000004",
     "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
     "checkpoint_ns": ""
   },
   "parent_checkpoint": {
-    "checkpoint_id": "1f1b2c05-bbdb-6a5c-8003-abcdc59ea3fc",
+    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000003",
     "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
     "checkpoint_ns": ""
   },
-  "interrupts": [],
+  "interrupts": [
+    {
+      "id": "start_date_request-interrupt",
+      "value": {
+        "type": "start_date_request",
+        "message": "Earliest departure date and latest return/must-leave date, both required (YYYY-MM-DD, YYYY-MM-DD):",
+        "ordered_destinations": [
+          {
+            "city": "Seoul",
+            "country": "South Korea",
+            "recommended_duration_days": "3-4",
+            "purpose": "Arrival gateway via Incheon Int'l Airport; initial Gangnam dermatology consultation and first round of low-downtime treatments before heading to the coast for surfing",
+            "is_international_gateway": true,
+            "requires_flight_or_ferry": false
+          },
+          {
+            "city": "Yangyang",
+            "country": "South Korea",
+            "recommended_duration_days": "3-5",
+            "purpose": "Closest surf destination to Seoul (2.5-3 hrs by road), ideal first surf block right after arrival while skin is fresh from initial gentle treatments",
+            "is_international_gateway": false,
+            "requires_flight_or_ferry": false
+          },
+          {
+            "city": "Busan",
+            "country": "South Korea",
+            "recommended_duration_days": "3-5",
+            "purpose": "Continue south along the coast via train/road for the Songjeong Surf & Groove Festival and high-value Park Hyatt Haeundae Chase point redemption",
+            "is_international_gateway": true,
+            "requires_flight_or_ferry": false
+          },
+          {
+            "city": "Gyeongju",
+            "country": "South Korea",
+            "recommended_duration_days": "2-3",
+            "purpose": "Short ground hop from Busan to soak in cultural sites and deploy Chase-transferred IHG points at favorable off-peak rates before the Jeju flight",
+            "is_international_gateway": false,
+            "requires_flight_or_ferry": false
+          },
+          {
+            "city": "Jeju",
+            "country": "South Korea",
+            "recommended_duration_days": "4-6",
+            "purpose": "Fly out to Jeju for summer surf at Jungmun Saekdal Beach paired with gentle, no-downtime skincare, positioned mid-late trip since it requires a dedicated flight and shouldn't end the itinerary",
+            "is_international_gateway": true,
+            "requires_flight_or_ferry": true
+          },
+          {
+            "city": "Seoul",
+            "country": "South Korea",
+            "recommended_duration_days": "3-5",
+            "purpose": "Return to Seoul (flight back from Jeju) for final aggressive dermatology procedures needing recovery time, extended-hours clinic visits, shopping, and international departure from Incheon",
+            "is_international_gateway": true,
+            "requires_flight_or_ferry": false
+          }
+        ]
+      }
+    }
+  ],
   "checkpoint_id": "1f1b2c16-f5b8-60b6-8004-ccf27a626bd4",
   "parent_checkpoint_id": "1f1b2c05-bbdb-6a5c-8003-abcdc59ea3fc"
 }

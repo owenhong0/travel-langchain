@@ -1,39 +1,34 @@
-// lib/fixtureClient.ts
-import type {TripClient, TripThreadState} from "../types/orchestrator";
+// src/lib/fixtureClient.ts
 import type {Client} from "@langchain/langgraph-sdk";
-import {historyStates, fixtureName, state} from "./fixtureData.ts";
+import type {TripClient} from "../types/orchestrator";
+import {fixtureName, currentState, historyStates, advance, reset} from "./fixtureData";
 
-
-const fixtures = import.meta.glob<TripThreadState>("../fixtures/*.json", {
-  eager: true,
-  import: "default",
-});
-
-if (!state) {
-  throw new Error(
-    `[fixtureClient] No fixture "${fixtureName}". Found: ${Object.keys(fixtures).join(", ")}`,
-  );
+interface StreamPayload {
+    command?: { resume?: unknown };
+    checkpoint?: { checkpoint_id?: string };
 }
 
 export function createFixtureClient(): TripClient {
     console.log("[fixtureClient] instance created, fixture:", fixtureName);
     return {
         runs: {
-            stream: async function* (_threadId, _assistantId, _opts) {
-                console.log("[fixtureClient] runs.stream called");
-                yield {event: "values", data: state.values};
+            stream: async function* (_threadId, _assistantId, payload) {
+                const opts = payload as unknown as StreamPayload | undefined;
+                // A resume moves one step on; a fork passes the checkpoint it branches from.
+                if (opts?.command?.resume !== undefined) {
+                    advance(opts.checkpoint?.checkpoint_id);
+                } else if (!opts?.command) {
+                    reset(); // a fresh start begins the sequence again
+                }
+                console.log("[fixtureClient] runs.stream ->", currentState().checkpoint.checkpoint_id);
+                yield {event: "values", data: structuredClone(currentState().values)};
             },
         },
         threads: {
-            getState: async () => {
-                console.log("[fixtureClient] threads.getState called");
-                return state;
-            },
-            create: async () => {
-                console.log("[fixtureClient] threads.create called, returning", state.checkpoint.thread_id);
-                return {thread_id: state.checkpoint.thread_id} as unknown as Awaited<ReturnType<Client["threads"]["create"]>>;
-            },
-            getHistory: async () => [...historyStates].reverse(), // newest first, like the real API
+            getState: async () => structuredClone(currentState()),
+            create: async () =>
+                ({thread_id: currentState().checkpoint.thread_id}) as unknown as Awaited<ReturnType<Client["threads"]["create"]>>,
+            getHistory: async () => structuredClone([...historyStates()].reverse()),
         },
     };
 }
