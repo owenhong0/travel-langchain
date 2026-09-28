@@ -1,0 +1,125 @@
+{
+  "values": {
+    "trip_preferences": "hey i wanna take a surf trip to korea and also wanted to get my skin care done at the same time using my chase points for hotels, can you help?",
+    "max_analysts": 5,
+    "analysts": [
+      {
+        "focus_area": "Korea Surf Conditions & Logistics",
+        "persona_name": "Dae-Hyun \"Swell\" Park",
+        "description": "Obsesses over swell forecasts, water temps, and board rental logistics for Korea's surf towns like Yangyang, Songjeong, and Jeju. Pushes back hard if a hotel choice or itinerary stop isn't within a short drive of a legit surf break, and insists on matching travel dates to Korea's actual surf season rather than just convenient flight windows."
+      },
+      {
+        "focus_area": "K-Beauty & Skincare Tourism",
+        "persona_name": "Soo-Min Choi",
+        "description": "Focuses on matching the traveler with legitimate dermatology clinics, medical spas, and skincare-focused experiences in Korea, distinguishing tourist-trap 'K-beauty' shops from real treatment-grade options. Pushes back if the itinerary crams skincare appointments in without enough recovery time after facials/procedures, since surfing right after certain treatments (sun exposure, peels) can be a problem."
+      },
+      {
+        "focus_area": "Chase Points & Hotel Redemption Strategy",
+        "persona_name": "Marcus Yi",
+        "description": "Cares about maximizing the value of Chase Ultimate Rewards points across Korean hotel options, weighing transfer partners (Hyatt, IHG, Marriott via other programs) against cash-and-points bookings. Pushes back on any hotel pick that burns points inefficiently or ignores better redemption value elsewhere in the same Korean city/region."
+      },
+      {
+        "focus_area": "Surf-to-City Itinerary Flow",
+        "persona_name": "Ji-Woo Han",
+        "description": "Focuses on the practical flow of combining a surf-town stay (like Yangyang) with a skincare-clinic-heavy stay (likely Seoul), including transit times, luggage/board logistics, and how many home base switches make sense. Pushes back if the plan tries to do everything from one hotel that's actually inconvenient for either surfing or clinic visits."
+      },
+      {
+        "focus_area": "Post-Surf Recovery & Skin Protection",
+        "persona_name": "Ha-Eun Lee",
+        "description": "Cares about the tension between sun/saltwater surf exposure and skincare goals, pushing for sun protection strategy, timing of facials relative to surf sessions, and hotel amenities (humidity control, good showers, spa access) that support skin recovery. Pushes back on itineraries that ignore how surfing can undo or complicate skincare treatment results."
+      }
+    ],
+    "sections": [],
+    "human_analyst_feedback": "",
+    "destination_candidates": [],
+    "finalized_destinations": [],
+    "review_decision": null,
+    "ordered_destinations": [],
+    "order_decision": null,
+    "order_feedback": null,
+    "trip_start_date": null,
+    "trip_end_date": null,
+    "dated_itinerary": [],
+    "date_decision": null,
+    "date_feedback": null,
+    "loyalty_programmes": [],
+    "home_city": "",
+    "home_country": "",
+    "return_city": "",
+    "return_country": "",
+    "legs": [],
+    "finalized_legs": [],
+    "stay_legs": [],
+    "finalized_stays": []
+  },
+  "next": [
+    "trip_info"
+  ],
+  "tasks": [
+    {
+      "id": "human_feedback-task",
+      "name": "trip_info",
+      "interrupts": [
+        {
+          "id": "human_feedback-interrupt",
+          "value": {
+            "type": "human_feedback",
+            "message": "Review the proposed analyst panel. Reply 'approve' to proceed, or give feedback to revise the panel.",
+            "analysts": [
+              "Focus: Korea Surf Conditions & Logistics\nName: Dae-Hyun \"Swell\" Park\nDescription: Obsesses over swell forecasts, water temps, and board rental logistics for Korea's surf towns like Yangyang, Songjeong, and Jeju. Pushes back hard if a hotel choice or itinerary stop isn't within a short drive of a legit surf break, and insists on matching travel dates to Korea's actual surf season rather than just convenient flight windows.\n",
+              "Focus: K-Beauty & Skincare Tourism\nName: Soo-Min Choi\nDescription: Focuses on matching the traveler with legitimate dermatology clinics, medical spas, and skincare-focused experiences in Korea, distinguishing tourist-trap 'K-beauty' shops from real treatment-grade options. Pushes back if the itinerary crams skincare appointments in without enough recovery time after facials/procedures, since surfing right after certain treatments (sun exposure, peels) can be a problem.\n",
+              "Focus: Chase Points & Hotel Redemption Strategy\nName: Marcus Yi\nDescription: Cares about maximizing the value of Chase Ultimate Rewards points across Korean hotel options, weighing transfer partners (Hyatt, IHG, Marriott via other programs) against cash-and-points bookings. Pushes back on any hotel pick that burns points inefficiently or ignores better redemption value elsewhere in the same Korean city/region.\n",
+              "Focus: Surf-to-City Itinerary Flow\nName: Ji-Woo Han\nDescription: Focuses on the practical flow of combining a surf-town stay (like Yangyang) with a skincare-clinic-heavy stay (likely Seoul), including transit times, luggage/board logistics, and how many home base switches make sense. Pushes back if the plan tries to do everything from one hotel that's actually inconvenient for either surfing or clinic visits.\n",
+              "Focus: Post-Surf Recovery & Skin Protection\nName: Ha-Eun Lee\nDescription: Cares about the tension between sun/saltwater surf exposure and skincare goals, pushing for sun protection strategy, timing of facials relative to surf sessions, and hotel amenities (humidity control, good showers, spa access) that support skin recovery. Pushes back on itineraries that ignore how surfing can undo or complicate skincare treatment results.\n"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "graph_id": "orchestrator",
+    "assistant_id": "224cf0be-a5c6-522f-86f0-b84379f45109",
+    "user_id": "",
+    "created_by": "system",
+    "from_studio": true,
+    "run_attempt": 1,
+    "langgraph_version": "1.2.9",
+    "langgraph_api_version": "0.14.1",
+    "langgraph_plan": "enterprise",
+    "langgraph_host": "self-hosted",
+    "checkpoint_id": "1f1b2c05-bbdb-6a5c-8003-abcdc59ea3fc",
+    "run_id": "01a0b085-69c5-76c2-804c-46696b3a3c07",
+    "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
+    "source": "loop",
+    "step": 4,
+    "parents": {},
+    "langgraph_auth_user_id": "",
+    "langgraph_request_id": "63c020af-6b4c-48a1-ba21-8ac353decb08"
+  },
+  "created_at": "2026-09-17T17:58:49.189583+00:00",
+  "checkpoint": {
+    "checkpoint_id": "1f1b2c00-0000-6000-8000-000000000001",
+    "thread_id": "01a0b077-ce80-7fc2-9268-5b08b751c083",
+    "checkpoint_ns": ""
+  },
+  "parent_checkpoint": null,
+  "interrupts": [
+    {
+      "id": "human_feedback-interrupt",
+      "value": {
+        "type": "human_feedback",
+        "message": "Review the proposed analyst panel. Reply 'approve' to proceed, or give feedback to revise the panel.",
+        "analysts": [
+          "Focus: Korea Surf Conditions & Logistics\nName: Dae-Hyun \"Swell\" Park\nDescription: Obsesses over swell forecasts, water temps, and board rental logistics for Korea's surf towns like Yangyang, Songjeong, and Jeju. Pushes back hard if a hotel choice or itinerary stop isn't within a short drive of a legit surf break, and insists on matching travel dates to Korea's actual surf season rather than just convenient flight windows.\n",
+          "Focus: K-Beauty & Skincare Tourism\nName: Soo-Min Choi\nDescription: Focuses on matching the traveler with legitimate dermatology clinics, medical spas, and skincare-focused experiences in Korea, distinguishing tourist-trap 'K-beauty' shops from real treatment-grade options. Pushes back if the itinerary crams skincare appointments in without enough recovery time after facials/procedures, since surfing right after certain treatments (sun exposure, peels) can be a problem.\n",
+          "Focus: Chase Points & Hotel Redemption Strategy\nName: Marcus Yi\nDescription: Cares about maximizing the value of Chase Ultimate Rewards points across Korean hotel options, weighing transfer partners (Hyatt, IHG, Marriott via other programs) against cash-and-points bookings. Pushes back on any hotel pick that burns points inefficiently or ignores better redemption value elsewhere in the same Korean city/region.\n",
+          "Focus: Surf-to-City Itinerary Flow\nName: Ji-Woo Han\nDescription: Focuses on the practical flow of combining a surf-town stay (like Yangyang) with a skincare-clinic-heavy stay (likely Seoul), including transit times, luggage/board logistics, and how many home base switches make sense. Pushes back if the plan tries to do everything from one hotel that's actually inconvenient for either surfing or clinic visits.\n",
+          "Focus: Post-Surf Recovery & Skin Protection\nName: Ha-Eun Lee\nDescription: Cares about the tension between sun/saltwater surf exposure and skincare goals, pushing for sun protection strategy, timing of facials relative to surf sessions, and hotel amenities (humidity control, good showers, spa access) that support skin recovery. Pushes back on itineraries that ignore how surfing can undo or complicate skincare treatment results.\n"
+        ]
+      }
+    }
+  ],
+  "checkpoint_id": "1f1b2c16-f5b8-60b6-8004-ccf27a626bd4",
+  "parent_checkpoint_id": "1f1b2c05-bbdb-6a5c-8003-abcdc59ea3fc"
+}

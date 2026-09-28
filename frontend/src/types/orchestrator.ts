@@ -1,6 +1,37 @@
 // Mirrors OrchestratorState + every interrupt() payload across
 // trip_info_graph.py, leg_transportation_graph.py, lodging_graph.py, trip_orchestrator.py
 
+import type { Client } from "@langchain/langgraph-sdk";
+
+export interface TripInterrupt {
+  id: string;
+  value: Interrupt;
+}
+
+export interface TripTask {
+  id: string;
+  name?: string;
+  interrupts: TripInterrupt[];
+}
+
+export interface TripThreadState {
+  values: InitialTripState;
+  next: string[];
+  tasks: TripTask[];
+  interrupts: TripInterrupt[];
+  checkpoint: { checkpoint_id: string; thread_id: string; checkpoint_ns: string };
+  parent_checkpoint: { checkpoint_id: string; thread_id: string; checkpoint_ns: string } | null;
+}
+
+// TripClient.threads.getState changes too — same file, same edit as before
+export interface TripClient {
+  runs: { stream: Client["runs"]["stream"] };
+  threads: {
+    getState: (threadId: string) => Promise<TripThreadState>;
+    create: Client["threads"]["create"];
+    getHistory: (threadId: string, options?: { limit?: number }) => Promise<TripThreadState[]>;
+  };
+}
 // ---------- trip_info_graph.py ----------
 
 // DestinationCandidate (trip_info_graph.py) — used in review_destinations
@@ -141,11 +172,17 @@ export type Interrupt =
 
 // ---------- InitialTripState (trip_orchestrator.py INITIAL_STATE) ----------
 
+export interface Analyst {
+  focus_area: string;
+  persona_name: string;
+  description: string;
+}
+
 export interface InitialTripState {
   [key: string]: unknown;
   trip_preferences: string;
-  max_analysts: number;
-  analysts: string[];
+  max_analysts?: number;
+  analysts: Analyst[];
   sections: string[];
   human_analyst_feedback: string;
   destination_candidates: DestinationCandidate[];
@@ -153,12 +190,12 @@ export interface InitialTripState {
   review_decision: string | null;
   ordered_destinations: OrderedDestination[];
   order_decision: string | null;
-  order_feedback: string | null;
+  order_feedback?: string | null;
   trip_start_date: string | null;
   trip_end_date: string | null;
   dated_itinerary: DatedLeg[];
   date_decision: string | null;
-  date_feedback: string | null;
+  date_feedback?: string | null;
 
   loyalty_programmes: string[];
 

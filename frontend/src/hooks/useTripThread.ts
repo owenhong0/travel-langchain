@@ -4,6 +4,7 @@ import {ROUTE_FOR_INTERRUPT} from "../lib/interruptRoutes";
 import type {InitialTripState, Interrupt} from "../types/orchestrator";
 import {useStream} from "@langchain/langgraph-sdk/react";
 import {fetchInterruptHistory, type InterruptHistorySnapshot} from "../lib/interruptHistory";
+import {sdkClient} from "../lib/langgraphClient.ts";
 
 const TEST_MODE = import.meta.env.VITE_TEST_MODE === "true";
 
@@ -16,7 +17,8 @@ export function useTripThread(existingThreadId?: string) {
     const [interruptHistory, setInterruptHistory] = useState<InterruptHistorySnapshot[]>([]);
 
     const thread = useStream({
-        apiUrl: import.meta.env.VITE_LANGGRAPH_API_URL,
+        // apiUrl: import.meta.env.VITE_LANGGRAPH_API_URL,
+        client: sdkClient,
         assistantId: "orchestrator",
         threadId: existingThreadId,
         onThreadId: (id) => setCurrentThreadId(id),
