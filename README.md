@@ -1,209 +1,292 @@
-
-## Local dev (picks up override automatically):
-docker compose up -d langgraph-api
-
-## Non-dev / prod deploy (base file only, no bind mount, no toggling required):
-docker compose -f docker-compose.yml up -d langgraph-api
-
-
 # AI Travel Planner
 
-A multi-agent travel planning system built on LangGraph. A single traveler intent flows
-through destination research, transportation planning, and lodging planning — each stage
-running its own internal search/reconcile/recommend/review loop, with human-in-the-loop
-interrupts at every decision point.
+A multi-agent travel planner built on **LangGraph**. You describe a trip in plain language. A team of agents then researches destinations, sequences the route, sets dates, plans flights and ground transport for each leg, and recommends places to stay. The traveler reviews and steers every major decision through human-in-the-loop checkpoints.
+
+> **Status:** The backend pipeline is complete and runs end to end in LangGraph Studio. The React frontend is in active development; every interrupt step has a working screen, and visual design is in progress.
+
+<p align="center">
+  <img src="trip_orchestrator.png" alt="Orchestrator graph in LangGraph Studio" width="420">
+  <br><sub>The orchestrator graph as rendered in LangGraph Studio</sub>
+</p>
+
+---
+
+## Highlights
+
+- **Hierarchical multi-agent graph.** A parent orchestrator runs three planning subgraphs (destinations, transportation, lodging) on one shared checkpointer and one `thread_id`, so a single run carries the whole trip.
+- **11 human-in-the-loop interrupts.** The traveler approves, reorders, or redirects the plan at every decision point. Feedback loops back into research instead of restarting the run.
+- **Parallel research with `Send()` fan-out.** Each leg and each stay is searched concurrently across flight, ground-transport, OTA, hotel-chain, and editorial sources.
+- **Cost-aware model routing.** A three-tier LLM factory sends high-stakes ranking to a premium model and high-volume extraction to a cheap one.
+- **Durable, resumable runs.** Postgres-backed checkpoints mean a run can be paused, resumed, or reloaded after a browser refresh, and the frontend can navigate back through completed steps.
+- **Deterministic dev loop.** A per-run `test_mode` replays cached API responses from Postgres, and frontend fixtures let every screen render without a live backend.
+
+---
 
 ## Architecture
 
-All three planning stages are compiled as child nodes under one parent orchestrator, which
-shares a single checkpointer and thread ID across the whole run. That's what lets an
-interrupt raised deep inside, say, the lodging fan-out propagate cleanly back to the caller
-without any manual thread-copying between stages.
+```text
+              +------------------------------+
+              | React + Vite frontend        |
+              | @langchain/langgraph-sdk     |
+              +------------------------------+
+                 |                        |
+   stream runs + |                        | back-navigation
+   resumes       v                        v
++------------------------------+  +----------------------------+
+| langgraph-api (:8123)        |  | webapp.py routes (FastAPI) |
+| orchestrator + 3 subgraphs   |  | interrupt history          |
++------------------------------+  +----------------------------+
+   |          |            |                    |
+   |          |            +---------+----------+
+   v          v                      v
++-------+  +------------------+  +----------------------------+
+| Redis |  | External APIs    |  | Postgres                   |
+| queue |  | OpenRouter       |  | checkpoints + test cache   |
++-------+  | Duffel, Tavily   |  +----------------------------+
+           | frankfurter.app  |
+           +------------------+
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {
-  'primaryColor': '#EEEDFE',
-  'primaryTextColor': '#26215C',
-  'primaryBorderColor': '#7F77DD',
-  'lineColor': '#888780',
-  'secondaryColor': '#E1F5EE',
-  'tertiaryColor': '#FAECE7'
-}}}%%
-flowchart TD
-    START([Start]) --> ORCH[trip_orchestrator.py<br/><i>single checkpointer, single thread_id</i>]
-    ORCH --> TIG[trip_info_graph<br/>destination research, analyst panel,<br/>ordering, dated itinerary]
-    TIG -.interrupt: request_home_context,<br/>review_destinations, review_dates.-> TIG
-    TIG --> LTG[leg_transportation_graph<br/>fan-out per leg: flight / ground / car rental]
-    LTG -.interrupt: transport_mode_review,<br/>leg_transport_review.-> LTG
-    LTG --> LG[lodging_graph<br/>parallel OTA / chain / editorial search]
-    LG -.interrupt: stay_type_review,<br/>stay_review.-> LG
-    LG --> END([End])
-
-    style START fill:#F1EFE8,stroke:#888780,color:#2C2C2A
-    style END fill:#F1EFE8,stroke:#888780,color:#2C2C2A
-    style ORCH fill:#EEEDFE,stroke:#7F77DD,color:#26215C
-    style TIG fill:#E1F5EE,stroke:#1D9E75,color:#04342C
-    style LTG fill:#FAECE7,stroke:#D85A30,color:#4A1B0C
-    style LG fill:#FBEAF0,stroke:#D4537E,color:#4B1528
+  All runs are traced to LangSmith.
 ```
 
-Each stage internally follows the same shape — search (parallel `Send()` fan-out) →
-reconcile (confidence-tag corroborated vs. unverified results) → recommend (premium-tier
-LLM ranking) → human review (`interrupt()`) → finalize:
+### Orchestrator pipeline
 
-```mermaid
-%%{init: {'theme':'base', 'themeVariables': {
-  'primaryColor': '#E1F5EE',
-  'primaryTextColor': '#04342C',
-  'primaryBorderColor': '#1D9E75',
-  'lineColor': '#888780'
-}}}%%
-flowchart LR
-    A[Search nodes<br/><i>Send() fan-out</i>] --> B[Reconcile<br/><i>confidence tagging</i>]
-    B --> C[Recommend<br/><i>premium-tier ranking</i>]
-    C --> D{Human review<br/>interrupt}
-    D -->|approve / pick| E[Finalize]
-    D -->|feedback| A
+```text
+  trip_preferences
+         |
+         v
++-----------------------------+
+| trip_info                   |  <-> human_feedback
+| analysts, destinations,     |      review_destinations
+| route order, dates          |      order_review
++-----------------------------+      start_date_request
+         |                           date_review
+         v
++-----------------------------+
+| collect_loyalty_programmes  |  <-> loyalty_programmes_request
++-----------------------------+
+         |
+         v
++-----------------------------+
+| transportation              |  <-> home_context_request
+| per-leg fan-out:            |      transport_mode_review
+| flights, ground, car rental |      leg_transport_review
++-----------------------------+
+         |
+         v
++-----------------------------+
+| lodging                     |  <-> stay_type_review
+| per-stay fan-out:           |      stay_review
+| OTAs, chains, editorial     |
++-----------------------------+
+         |
+         v
+  finalized itinerary
 
-    style A fill:#E1F5EE,stroke:#1D9E75,color:#04342C
-    style B fill:#E1F5EE,stroke:#1D9E75,color:#04342C
-    style C fill:#EEEDFE,stroke:#7F77DD,color:#26215C
-    style D fill:#FAEEDA,stroke:#BA7517,color:#412402
-    style E fill:#F1EFE8,stroke:#888780,color:#2C2C2A
+  <->  interrupt(): the run pauses for the traveler and resumes
+       with their answer on the same thread
 ```
 
-### Repo layout
+### Inside each planning stage
 
-| File | Role |
+All three subgraphs follow the same loop:
+
+```text
+[Search] --> [Reconcile] --> [Recommend] --> [Review] --approve--> [Finalize]
+    ^                                            |
+    +----------------- feedback -----------------+
+
+  Search     parallel Send() fan-out across sources
+  Reconcile  tag results as corroborated or unverified
+  Recommend  premium-tier ranking
+  Review     interrupt(): approve, or send feedback back to search
+```
+
+### Graph views from LangGraph Studio
+
+Each subgraph is registered in `langgraph.json`, so it can also be opened and run on its own in Studio. Expand a graph to see its full node layout.
+
+<details>
+<summary><b>trip_info</b>: analyst panel, destinations, route order, dates</summary>
+<br>
+<img src="trip_info_graph.png" alt="trip_info graph in LangGraph Studio">
+</details>
+
+<details>
+<summary><b>transportation</b>: per-leg flight, ground, and car-rental planning</summary>
+<br>
+<img src="transportation_graph.png" alt="transportation graph in LangGraph Studio">
+</details>
+
+<details>
+<summary><b>lodging</b>: per-stay search, FX normalization, loyalty matching</summary>
+<br>
+<img src="lodging_graph.png" alt="lodging graph in LangGraph Studio">
+</details>
+
+<details>
+<summary><b>main</b>: standalone flight-search graph built on Duffel</summary>
+<br>
+<img src="main_airfare_graph.png" alt="main airfare graph in LangGraph Studio">
+</details>
+
+### Human-in-the-loop checkpoints
+
+| Stage | Interrupt | What the traveler does |
+|---|---|---|
+| Destinations | `human_feedback` | Reviews the generated research-analyst personas, approves or reshapes them |
+| | `review_destinations` | Keeps, drops, or edits candidate destinations |
+| | `order_review` | Approves or reorders the route |
+| | `start_date_request` | Provides a trip start date |
+| | `date_review` | Approves the dated itinerary |
+| Loyalty | `loyalty_programmes_request` | Lists hotel and airline programmes to optimize for |
+| Transportation | `home_context_request` | Sets home and return cities |
+| | `transport_mode_review` | Chooses flight, ground, or car per leg |
+| | `leg_transport_review` | Picks a specific option for each leg |
+| Lodging | `stay_type_review` | Chooses hotel vs. alternative stay types |
+| | `stay_review` | Picks a stay for each destination |
+
+Each interrupt payload carries a `type` string. The frontend maps it to a matching review screen through a registry, with an explicit fallback component so an unrecognized type is shown rather than silently dropped.
+
+---
+
+## Key design decisions
+
+**One checkpointer, compiled subgraphs.** The subgraphs are compiled *without* their own checkpointer so they inherit the orchestrator's. An interrupt raised deep inside a lodging fan-out branch surfaces directly to the client on the same thread, with no state copying between stages.
+
+**Tiered LLM routing.** `llm_config.get_llm(tier)` returns one of three OpenRouter-backed models. Every call site passes its tier explicitly; a silent fallback to the premium model in one extraction node once cost about 3.8× more before usage logs caught it.
+
+| Tier | Model | Used for |
+|---|---|---|
+| `premium` | Claude Sonnet 5 | Ranking, recommendations, retry-critical structured output |
+| `mid` | Claude Haiku 4.5 | General reasoning |
+| `cheap` | DeepSeek V4 Flash | High-volume extraction from search results |
+
+**Reconciliation before recommendation.** Search results from several sources are cross-checked and tagged as corroborated or unverified before ranking, so the recommender sees data quality as well as data.
+
+**Back-navigation from checkpoints.** `webapp.py` walks Postgres checkpoints across subgraph namespaces to rebuild the history of resolved interrupts for a thread, which lets the frontend show earlier steps without re-running the graph.
+
+**Test mode for repeatable runs.** Passing `test_mode: true` in `config.configurable` routes Tavily calls through a Postgres cache keyed on the request, so development reruns are fast, deterministic, and free. Normal runs are unaffected.
+
+---
+
+## Tech stack
+
+| Layer | Tools |
 |---|---|
-| `trip_orchestrator.py` | Parent graph — compiles the three subgraphs below as child nodes under one checkpointer |
-| `trip_info_graph.py` | Destination research: analyst-panel simulation, candidate extraction, ordering, date computation, `request_home_context` |
-| `leg_transportation_graph.py` | Per-leg fan-out across flight (Duffel), ground transport (Tavily + domain discovery), car rental |
-| `lodging_graph.py` | Parallel stay search across Agoda, hotel chains, general OTAs, editorial sources; USD normalization; loyalty enrichment |
-| `main.py` | Standalone flight-search graph + shared Duffel airport-cache helpers (`duffel_places_lookup`, `duffel_city_coords`, `duffel_city_country`) used by the other graphs |
-| `models.py` | Pydantic models + null-safe extractors for Duffel API responses |
-| `llm_config.py` | Three-tier `get_llm(tier)` factory (`premium` / `mid` / `cheap`) routed through OpenRouter |
-| `langgraph.json` | Graph registration for LangGraph Studio / CLI |
+| Orchestration | LangGraph, LangChain, LangSmith |
+| Models | OpenRouter (Claude Sonnet 5, Claude Haiku 4.5, DeepSeek V4 Flash) |
+| Data sources | Duffel (flights, airport catalog), Tavily (search and extract), frankfurter.app (FX) |
+| Backend | Python 3.11, Pydantic, FastAPI |
+| Persistence | Postgres (checkpoints, test cache), Redis |
+| Frontend | React 19, TypeScript, Vite, React Router, `@langchain/langgraph-sdk` |
+| Infrastructure | Docker Compose, `langgraph-api` |
 
-## Setup
+---
+
+## Getting started
+
+### Prerequisites
+
+- Python 3.11+, Node 20+, Docker
+- API keys for OpenRouter, Duffel, and Tavily (LangSmith optional)
+
+### 1. Environment
+
+Create `.env` in the repo root (it is git-ignored):
 
 ```bash
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+OPENROUTER_API_KEY=...
+DUFFEL_API_KEY=...
+TAVILY_API_KEY=...
 
-### Environment variables
-
-Create a `.env` file in the repo root (already git-ignored):
-
-```bash
-OPENROUTER_API_KEY=...     # routes all three LLM tiers (Sonnet 5 / Haiku 4.5 / DeepSeek V4 Flash)
-DUFFEL_API_KEY=...         # flight search + airport catalog
-TAVILY_API_KEY=...         # TavilySearch / TavilyExtract
-ANTHROPIC_API_KEY=...      # only needed if you switch a call site back to langchain_anthropic.ChatAnthropic directly
-
-# Optional — enables LangSmith tracing, which is what powers the Studio trace view
+# Optional: tracing in LangSmith
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_API_KEY=...
 LANGCHAIN_PROJECT=ai-travel-planner
 ```
 
-No FX or currency API key is needed — `lodging_graph.py` hits the free
-`frankfurter.app` endpoint for USD normalization.
-
-## Running
-
-### In LangGraph Studio (recommended for interrupt-driven graphs)
+### 2a. Run in LangGraph Studio (quickest)
 
 ```bash
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 langgraph dev
 ```
 
-This reads `langgraph.json` and opens Studio, where you can step through interrupts
-(`transport_mode_review`, `stay_review`, etc.) interactively instead of hand-rolling a
-CLI loop. Since the orchestrator now owns the checkpointer, a single thread in Studio
-carries you through destination research → transportation → lodging without manually
-copying thread state between separate graph invocations.
+Open the `orchestrator` graph in Studio, enter `trip_preferences`, and step through each interrupt.
 
-### As standalone scripts
-
-Each subgraph file also runs directly for quick iteration outside Studio, e.g.:
+### 2b. Run with Docker
 
 ```bash
-python trip_info_graph.py
-python leg_transportation_graph.py   # prompts for a pasted dated_itinerary JSON
-python lodging_graph.py              # prompts for dated_itinerary + loyalty programmes
+langgraph build -t travel-langchain:latest
+docker compose up -d        # API on http://localhost:8123
 ```
 
-These use an `InMemorySaver` checkpointer and a REPL-style `while "__interrupt__" in result`
-loop, printing each interrupt payload and prompting for a resume value — useful for
-debugging one stage in isolation.
+`docker-compose.override.yml` is picked up automatically for local development. Use `docker compose -f docker-compose.yml up -d` for a production-style run without it.
 
-## `langgraph.json`
+### 3. Frontend
 
-If your current file still lists the three subgraphs as separate top-level entries, add
-the orchestrator alongside (or in place of) them so Studio can drive the whole pipeline
-on one thread:
-
-```jsonc
-{
-  "graphs": {
-    "trip_orchestrator": "./trip_orchestrator.py:graph",
-    // keep these if you still want to debug a single stage in isolation in Studio
-    "trip_info": "./trip_info_graph.py:graph",
-    "transportation": "./leg_transportation_graph.py:transport_graph",
-    "lodging": "./lodging_graph.py:lodging_graph"
-  }
-}
+```bash
+cd frontend
+npm install
+echo "VITE_LANGGRAPH_API_URL=http://localhost:8123" > .env.local
+npm run dev                 # http://localhost:5173
 ```
 
-## Development notes
+To render the screens without a backend, set `VITE_STUB_MODE` and `VITE_FIXTURE` to load a recorded interrupt from `frontend/src/fixtures/`.
 
-**Subgraph checkpointer inheritance** — every child graph (`trip_info_graph`,
-`leg_transportation_graph`, `lodging_graph`) must be compiled *without* its own
-checkpointer so it inherits the orchestrator's. Passing a checkpointer at both levels
-silently breaks interrupt propagation between stages.
+---
 
-**`INITIAL_STATE` must seed every key** the orchestrator's unified state touches —
-several nodes across the subgraphs index state directly (`state["key"]`) rather than via
-`.get()`, so a missing key surfaces as a `KeyError` deep in a `Send()` branch rather than
-at the top level where it's easy to diagnose.
+## Project structure
 
-**Double-interrupt trap** — don't combine a compile-time `interrupt_before=["node"]`
-with a dynamic `interrupt()` call inside that same node. `trip_info_graph.py`'s
-`destination_graph` hit this; only one interrupt mechanism per node.
+```
+├── trip_orchestrator.py        # Parent graph wiring the stages on one checkpointer
+├── trip_info_graph.py          # Analyst panel, destinations, ordering, dates
+├── leg_transportation_graph.py # Per-leg flight / ground / car-rental planning
+├── lodging_graph.py            # Per-stay search, FX normalization, loyalty matching
+├── main.py                     # Standalone flight-search graph + Duffel helpers
+├── llm_config.py               # Three-tier get_llm() factory
+├── models.py                   # Pydantic models for Duffel responses
+├── cache_utils.py              # test_mode response cache
+├── checkpoint_utils.py         # Checkpoint namespace discovery
+├── webapp.py                   # FastAPI routes mounted on langgraph-api
+├── langgraph.json              # Graph registration
+├── *_graph.png, trip_orchestrator.png  # Graph renders from LangGraph Studio
+├── docker-compose*.yml
+├── migrations/                 # Postgres schema for the test cache
+├── scripts/                    # Dev utilities (cached runs, resume helpers)
+├── documentation/              # Design notes: caching, checkpoints, timeline
+└── frontend/
+    └── src/
+        ├── components/interrupts/  # One review screen per interrupt type
+        ├── hooks/ context/         # Thread streaming and state
+        └── fixtures/               # Recorded interrupt payloads
+```
 
-**LLM tier discipline** — every call site must pass its tier explicitly. A `search_llm=None`
-default that silently falls back to the module-level `llm` (premium) will route
-high-volume extraction traffic onto Sonnet 5 without any error — this happened in
-`lodging_graph.py` and cost ~3.8x more before being caught via OpenRouter usage logs, not
-via any graph-level error. When adding a new search/extraction node, follow
-`leg_transportation_graph.py`'s pattern of a dedicated `extraction_llm` variable rather
-than reusing the premium `llm`.
+---
 
-**Structured output over OpenRouter** — every `ChatOpenAI` instance used with
-`.with_structured_output(...)` should set `streaming=False` (already done in
-`llm_config.get_llm`). Leaving streaming on has caused silent `CancelledError` cascades
-across parallel `Send()` branches from OpenAI's partial-JSON accumulator.
+## Engineering notes
 
-**Tavily defensiveness** — `TavilySearch.invoke()` can return a plain string instead of
-a `{"results": [...]}` dict on error; always route through a `_tavily_results()`
-normalizer rather than calling `.get("results")` directly on the raw return value.
+Lessons from building this, kept here because they cost real debugging time:
 
-**Trace-driven debugging** — LangSmith Studio traces are the primary way to debug this
-codebase, since most failures surface inside a `Send()`-fanned-out branch where a plain
-stack trace loses the leg/stay context. When Studio's trace UI is unreliable, the
-`print()` statements already scattered through `leg_transportation_graph.py`'s search
-nodes are the fallback (search for `# DEBUG`).
+- **One interrupt mechanism per node.** Combining compile-time `interrupt_before` with a dynamic `interrupt()` in the same node fires twice.
+- **Disable streaming for structured output over OpenRouter.** Streaming partial JSON across parallel `Send()` branches caused cascading `CancelledError`s; `get_llm()` sets `streaming=False`.
+- **Normalize Tavily responses.** `TavilySearch.invoke()` can return a string instead of a results dict on error, so all calls go through a normalizer.
+- **Trace first.** Most failures happen inside a fanned-out branch, where a stack trace loses the leg or stay context. LangSmith traces are the primary debugging tool.
+
+---
 
 ## Roadmap
 
-- Frontend development (unblocked now that the orchestrator is unified)
-- Verify in Studio whether the `&selected_currency=USD` param on `DIRECT_RATE_SOURCES`
-  is causing `search_rates_direct` to return empty results
-- Resolve OpenRouter → DeepSeek V4 Flash latency (pin providers via `extra_body`, or move
-  search nodes to the `mid` tier)
-- Pre-arrival leg concept for late-arrival awareness on the first itinerary stop
-- Validate DeepSeek's `with_structured_output` compatibility vs. Claude for
-  extraction-tier nodes
+- [ ] Frontend visual design pass
+- [ ] Pre-arrival leg for late arrivals at the first destination
+- [ ] Validate DeepSeek structured output against Claude on extraction nodes
+- [ ] Narrow the orchestrator `input_schema` so new runs need only `trip_preferences`
+- [ ] Hosted demo
+
+---
+
+## Author
+
+**Owen Hong** · [GitHub](https://github.com/owenhong0)
