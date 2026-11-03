@@ -1,8 +1,6 @@
 import os
 
-import pytest
-
-from cache_utils import _cache_key, get_cached, store_cache
+from backend.cache_utils import _cache_key, get_cached, store_cache
 
 CONN_STRING = os.environ["POSTGRES_URI"] # adjust if your .env uses a different var name
 

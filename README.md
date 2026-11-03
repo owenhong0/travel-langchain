@@ -5,7 +5,7 @@ A multi-agent travel planner built on **LangGraph**. You describe a trip in plai
 > **Status:** The backend pipeline is complete and runs end to end in LangGraph Studio. The React frontend is in active development; every interrupt step has a working screen, and visual design is in progress.
 
 <p align="center">
-  <img src="trip_orchestrator.png" alt="Orchestrator graph in LangGraph Studio" width="420">
+  <img src="backend/trip_orchestrator.png" alt="Orchestrator graph in LangGraph Studio" width="420">
   <br><sub>The orchestrator graph as rendered in LangGraph Studio</sub>
 </p>
 
@@ -109,25 +109,25 @@ Each subgraph is registered in `langgraph.json`, so it can also be opened and ru
 <details>
 <summary><b>trip_info</b>: analyst panel, destinations, route order, dates</summary>
 <br>
-<img src="trip_info_graph.png" alt="trip_info graph in LangGraph Studio">
+<img src="backend/trip_info_graph.png" alt="trip_info graph in LangGraph Studio">
 </details>
 
 <details>
 <summary><b>transportation</b>: per-leg flight, ground, and car-rental planning</summary>
 <br>
-<img src="transportation_graph.png" alt="transportation graph in LangGraph Studio">
+<img src="backend/transportation_graph.png" alt="transportation graph in LangGraph Studio">
 </details>
 
 <details>
 <summary><b>lodging</b>: per-stay search, FX normalization, loyalty matching</summary>
 <br>
-<img src="lodging_graph.png" alt="lodging graph in LangGraph Studio">
+<img src="backend/lodging_graph.png" alt="lodging graph in LangGraph Studio">
 </details>
 
 <details>
 <summary><b>main</b>: standalone flight-search graph built on Duffel</summary>
 <br>
-<img src="main_airfare_graph.png" alt="main airfare graph in LangGraph Studio">
+<img src="backend/main_airfare_graph.png" alt="main airfare graph in LangGraph Studio">
 </details>
 
 ### Human-in-the-loop checkpoints

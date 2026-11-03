@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.postgres import PostgresSaver
 
-from checkpoint_utils import discover_checkpoint_namespaces
+from backend.checkpoint_utils import discover_checkpoint_namespaces
 from trip_orchestrator import builder
 
 app = FastAPI()

@@ -36,3 +36,8 @@
     color: var(--c-text);
     text-align: left;
 }
+
+.fullbleed--blur .fullbleed__img {
+    filter: blur(var(--blur-photo));
+    transform: scale(1.06);   /* hides the soft halo blur creates at the edges */
+}

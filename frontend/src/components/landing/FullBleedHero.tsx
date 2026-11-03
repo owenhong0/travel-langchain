@@ -7,12 +7,14 @@ type Props = {
     portrait?: Picture;      // new — used on phones / portrait screens
     alt: string;
     focal?: string;
+    blur?: boolean;
     children?: ReactNode;
 };
 
-export function FullBleedHero({image, portrait, alt, focal = "50% 50%", children}: Props) {
+export function FullBleedHero({image, portrait, alt, focal = "50% 50%", blur = false, children}: Props) {
     return (
-        <section className="fullbleed" style={{"--focal": focal} as CSSProperties}>
+        <section className={blur ? "fullbleed fullbleed--blur" : "fullbleed"}
+                 style={{"--focal": focal} as CSSProperties}>
             <picture>
                 {portrait && Object.entries(portrait.sources).map(([format, srcset]) => (
                     <source key={`p-${format}`} media="(orientation: portrait)"
