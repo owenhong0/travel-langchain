@@ -1,16 +1,15 @@
 # trip_orchestrator.py
-import json
 import operator
-from typing import Annotated, Optional, TypedDict, Any
+from typing import Annotated, Optional, TypedDict
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.types import Command, interrupt
 
-from trip_info_graph import destination_graph, APPROVE_SIGNALS
-from leg_transportation_graph import transport_graph
-from lodging_graph import lodging_graph
+from trip_info_graph import destination_graph
+from backend.leg_transportation_graph import transport_graph
+from backend.lodging_graph import lodging_graph
 
 
 # ---------- Unified state ----------

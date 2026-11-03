@@ -1,0 +1,141 @@
+/* src/components/StartTrip.css */
+
+/* Centered column: headline, then panel + links */
+.prompt {
+    flex: 1;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: var(--gap-headline);
+    text-align: center;
+}
+
+.prompt__headline {
+    margin: 0;
+    color: var(--c-text);
+    font-size: var(--fs-headline);
+    font-weight: var(--headline-weight);
+    line-height: var(--headline-lh);
+    letter-spacing: var(--headline-tracking);
+    text-wrap: balance; /* even line lengths when it wraps on phone */
+}
+
+.prompt__body {
+    display: grid;
+    justify-items: center;
+    gap: var(--gap-links);
+    width: min(100%, var(--panel-max-width));
+}
+
+/* The frosted panel */
+.prompt__panel {
+    width: 100%;
+    display: grid;
+    gap: 0;
+    padding: var(--panel-pad);
+    text-align: left;
+    background: var(--c-panel-fill);
+    backdrop-filter: blur(var(--blur-panel));
+    -webkit-backdrop-filter: blur(var(--blur-panel));
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-panel);
+    transition: border-color 0.2s;
+}
+
+.prompt__panel:has(.prompt__input:not(:placeholder-shown)) .prompt__label {
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+}
+
+.prompt__panel:focus-within {
+    border-color: var(--c-button-border); /* visible focus, since the textarea outline is removed */
+}
+
+.prompt__label {
+    max-height: 2em;
+    margin-bottom: 0.75rem; /* replaces the panel gap so it can collapse too */
+    overflow: hidden;
+    font-size: var(--fs-label);
+    color: var(--c-text);
+    transition: opacity 0.2s, max-height 0.2s, margin-bottom 0.2s;
+}
+
+.prompt__input {
+    width: 100%;
+    min-height: calc(var(--body-lh) * 1em * 4);
+    max-height: 40svh;
+    field-sizing: content; /* grows as you type (Chrome/Brave; Safari keeps 4 rows) */
+    padding: 0;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--c-text);
+    font: inherit;
+    font-size: var(--fs-body);
+    line-height: var(--body-lh);
+}
+
+.prompt__input::placeholder {
+    color: var(--c-text-muted);
+}
+
+.prompt__submit {
+    justify-self: end;
+    padding: 0.35rem 1.5rem;
+    font: inherit;
+    font-size: var(--fs-button);
+    color: var(--c-text);
+    background: transparent;
+    border: var(--border-width) solid var(--c-button-border);
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    margin-top: 0.75rem;
+}
+
+.prompt__submit:hover:not(:disabled) {
+    background: #FFFFFF26;
+}
+
+/* white 15% */
+.prompt__submit:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.prompt__error {
+    margin: 0;
+    color: var(--c-text);
+    font-size: var(--fs-link);
+}
+
+.prompt__links {
+    display: grid;
+    gap: 0.25rem;
+    font-size: var(--fs-link);
+}
+
+.prompt__links a {
+    color: var(--c-text);
+    text-underline-offset: 0.2em;
+}
+
+/* Small "Journeyman" — bottom-left on laptop */
+.masthead--small {
+    align-self: flex-start;
+    margin: 0;
+    color: var(--c-text);
+    font-size: var(--fs-masthead-small);
+    font-weight: var(--masthead-weight);
+    font-style: italic;
+}
+
+/* Phone: masthead moves to top-center */
+@media (max-width: 600px) {
+    .masthead--small {
+        order: -1;
+        align-self: center;
+    }
+}
