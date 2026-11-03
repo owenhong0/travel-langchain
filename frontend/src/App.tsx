@@ -15,13 +15,15 @@ import {StayReviewInterrupt} from "./components/interrupts/StayReviewInterrupt";
 import {StayTypeReviewInterrupt} from "./components/interrupts/StayTypeReviewInterrupt";
 import "./App.css";
 import {ReviewDestinationsInterrupt} from "./components/interrupts/ReviewDestinationsInterrupt.tsx";
+import {Landing} from "./components/landing/Landing.tsx";
 
 export default function App() {
     return (
         <BrowserRouter>
             <Routes>
                 {/* Home route - start a new trip */}
-                <Route path="/" element={<StartTrip/>}/>
+                <Route path="/" element={<Landing/>}/>
+                <Route path="/plan" element={<StartTrip/>}/>
 
                 {/* Trip routes with thread context and layout */}
                 <Route path="/trip/:threadId" element={<TripThreadProvider><TripLayout/></TripThreadProvider>}>

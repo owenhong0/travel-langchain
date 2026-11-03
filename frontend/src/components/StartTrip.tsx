@@ -3,6 +3,8 @@ import {useState, type FormEvent} from "react";
 import {useTripThread} from "../hooks/useTripThread";
 import type {InitialTripState} from "../types/orchestrator";
 import {DebugPanel} from "./DebugPanel";
+import {FullBleedHero} from "./landing/FullBleedHero.tsx";
+import closing from "../assets/journeyman/vol1/Vol1Page1.jpeg?w=640;1182&format=avif;webp&as=picture";
 
 const EMPTY_STATE: InitialTripState = {
   // trip_info_graph fields
@@ -50,7 +52,7 @@ export function StartTrip() {
     };
 
     return (
-        <>
+        <FullBleedHero image={closing} alt="Describe the scene in this photo" focal="50% 50%">
             <DebugPanel 
                 isLoading={isStreaming}
                 messagesLength={messages?.length || 0}
@@ -72,6 +74,6 @@ export function StartTrip() {
                 </button>
                 {error && <p role="alert">{error}</p>}
             </form>
-        </>
+        </FullBleedHero>
     );
 }
