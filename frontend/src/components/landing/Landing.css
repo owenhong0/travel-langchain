@@ -1,0 +1,59 @@
+/* src/components/landing/Landing.css */
+.landing {
+    flex: 1;
+    display: grid;
+    grid-template-areas:
+        "masthead masthead masthead"
+        ".        .        .       "
+        "caption  cue      folio   ";
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: end;
+}
+
+.landing__masthead { grid-area: masthead; align-self: start; }
+
+.masthead {
+    margin: 0;
+    color: var(--c-text);
+    font-size: var(--fs-masthead);
+    font-weight: var(--masthead-weight);
+    font-style: italic;
+    line-height: var(--masthead-lh);
+    letter-spacing: var(--masthead-tracking);
+}
+
+.tagline {
+    margin: var(--gap-tagline) 0 0;
+    font-size: var(--fs-tagline);
+    font-style: italic;
+}
+
+.caption        { grid-area: caption; }
+.caption__title { margin: 0; font-size: var(--fs-caption); font-weight: 700; font-style: italic; }
+.caption__sub   { margin: 0; font-size: var(--fs-caption-sub); }
+
+.cue {
+    grid-area: cue;
+    display: grid;
+    justify-items: center;
+    color: inherit;
+    text-decoration: none;
+    font-size: var(--fs-cue);
+}
+
+.folio { grid-area: folio; justify-self: end; margin: 0; font-size: var(--fs-folio); }
+
+@media (max-width: 600px) {
+    .landing {
+        grid-template-areas:
+            "masthead"
+            "cue"
+            "."
+            "caption";
+        grid-template-rows: auto auto 1fr auto;
+        grid-template-columns: 1fr;
+    }
+    .cue   { align-self: start; margin-top: var(--pad-y); }
+    .folio { display: none; }
+}
