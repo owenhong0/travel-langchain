@@ -41,3 +41,7 @@
     filter: blur(var(--blur-photo));
     transform: scale(1.06);   /* hides the soft halo blur creates at the edges */
 }
+
+.fullbleed--blur .fullbleed__scrim {
+    background: var(--scrim-blur);
+}

@@ -140,6 +140,7 @@
            height % = rectangle height ÷ frame height × 100 */
   --scrim-bottom: none;  /* behind caption + links */
   --scrim-top:    none;  /* behind masthead */
+  --scrim-blur: #00000040;
 
   /* Blur — Figma blur ÷ 2 ≈ CSS blur, then adjust by eye */
   --blur-photo: 6px;              /* TODO: StartTrip background photo — Figma layer blur: ___ (frame looks stronger) */
