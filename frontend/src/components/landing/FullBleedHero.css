@@ -7,6 +7,18 @@
     overflow: hidden;
     isolation: isolate;
 }
+/*.fullbleed {*/
+/*  height: auto;*/
+/*  aspect-ratio: 16 / 10;          !* = your Figma frame *!*/
+/*  container-type: inline-size;    !* lets children use cqw units *!*/
+/*}*/
+
+/*.masthead {*/
+/*  position: absolute;*/
+/*  top: 44%;                        !* measured from Figma: masthead top ÷ frame height *!*/
+/*  left: 50%; translate: -50% 0;*/
+/*  font-size: 7.5cqw;               !* Figma font px ÷ 1440 × 100 *!*/
+/*}*/
 
 .fullbleed__img {
     position: absolute;

@@ -396,7 +396,7 @@ def human_feedback(state: DestinationResearchState):
         "type": "human_feedback",
         "message": "Review the proposed analyst panel. Reply 'approve' to proceed, "
                    "or give feedback to revise the panel.",
-        "analysts": [an.persona for an in state["analysts"]],
+        "analysts": [an.model_dump() for an in state["analysts"]],
     })
     return {
         "human_analyst_feedback": h_feedback

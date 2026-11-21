@@ -1,8 +1,8 @@
 // src/components/landing/Landing.tsx
 import {Link} from "react-router-dom";
-// import cover from "../../assets/journeyman/vol1/Vol1Page1.jpeg?w=1182&format=jpg&quality=95&as=picture";
+import cover from "../../assets/journeyman/vol1/Vol1Page1.jpeg?w=1182&format=jpg&quality=95&as=picture";
 // import coverPortrait from "../../assets/journeyman/vol1/Vol1Page1Phone.jpeg?w=640;1182&format=avif;webp&as=picture";
-import cover from "../../assets/journeyman/vol1/Vol1Page1.jpeg?w=1182&format=avif;webp;jpg&quality=85&as=picture";
+// import cover from "../../assets/journeyman/vol1/Vol1Page1.jpeg?w=1182&format=avif;webp;jpg&quality=85&as=picture";
 import coverPortrait from "../../assets/journeyman/vol1/Vol1Page1Phone.jpeg?w=750;1170&format=avif;webp;jpg&quality=85&as=picture";
 import {FullBleedHero} from "./FullBleedHero";
 import "./Landing.css";

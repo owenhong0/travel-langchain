@@ -148,7 +148,7 @@ export interface StayOption {
 // ---------- Interrupt union — every interrupt({...}) call across all four files ----------
 
 export type Interrupt =
-  | { type: "human_feedback"; message: string; analysts: string[] }
+  | { type: "human_feedback"; message: string; analysts: (Analyst | string)[] }
   | { type: "review_destinations"; message: string; destination_candidates: DestinationCandidate[] }
   | { type: "order_review"; message: string; ordered_destinations: OrderedDestination[] }
   | { type: "start_date_request"; message: string; ordered_destinations: OrderedDestination[] }

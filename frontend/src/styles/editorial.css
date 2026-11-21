@@ -1,0 +1,50 @@
+/* src/styles/editorial.css
+   Shared Journeyman pieces: small labels, glass surfaces, pill buttons.
+   Page-specific layout stays in each page's own CSS file. */
+
+/* Small bold-italic labels in the corners */
+.label {
+    margin: 0;
+    color: var(--c-text);
+    font-size: var(--fs-label-small);
+    font-weight: 700;
+    font-style: normal;
+}
+
+.label--italic { font-style: italic; }
+
+/* Frosted surface used by panels, chips and inputs */
+.glass {
+    background: var(--c-panel-fill);
+    backdrop-filter: blur(var(--blur-panel));
+    -webkit-backdrop-filter: blur(var(--blur-panel));
+    border: var(--border-width) solid var(--c-glass-border);
+}
+
+/* Outlined pill buttons: Save, Cancel, Clear */
+.pill {
+    padding: 0.4em 1.4em;
+    border: var(--border-width) solid var(--c-button-border);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--c-text);
+    font: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+.pill:hover { background: #FFFFFF1A; }
+
+/* Bare text buttons (Next, Click to open an analyst) */
+.text-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+:where(button, textarea):focus-visible {
+    outline: 2px solid var(--c-text);
+    outline-offset: 3px;
+}

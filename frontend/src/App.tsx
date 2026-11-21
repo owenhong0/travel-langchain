@@ -1,5 +1,5 @@
 // src/App.tsx
-import {BrowserRouter, Routes, Route} from "react-router-dom";
+import {BrowserRouter, Routes, Route, Outlet} from "react-router-dom";
 import {TripThreadProvider} from "./context/TripThreadProvider";
 import {TripLayout} from "./components/TripLayout";
 import {StartTrip} from "./components/StartTrip";
@@ -26,18 +26,20 @@ export default function App() {
                 <Route path="/plan" element={<StartTrip/>}/>
 
                 {/* Trip routes with thread context and layout */}
-                <Route path="/trip/:threadId" element={<TripThreadProvider><TripLayout/></TripThreadProvider>}>
-                    <Route path="analysts" element={<HumanFeedbackInterrupt/>}/>
-                    <Route path="destinations/review" element={<ReviewDestinationsInterrupt/>}/>
-                    <Route path="destinations/order" element={<OrderReviewInterrupt/>}/>
-                    <Route path="dates/range" element={<StartDateRequestInterrupt/>}/>
-                    <Route path="dates/review" element={<DateReviewInterrupt/>}/>
-                    <Route path="loyalty" element={<LoyaltyProgrammesRequestInterrupt/>}/>
-                    <Route path="home-context" element={<HomeContextRequestInterrupt/>}/>
-                    <Route path="transport" element={<TransportModeReviewInterrupt/>}/>
-                    <Route path="stays/types" element={<StayTypeReviewInterrupt/>}/>
-                    <Route path="stays" element={<StayReviewInterrupt/>}/>
-                    <Route path="summary" element={<TripSummary/>}/>
+                <Route path="/trip/:threadId" element={<TripThreadProvider><Outlet/></TripThreadProvider>}>
+                    <Route path="analysts" element={<HumanFeedbackInterrupt/>}/> {/* full-bleed, no sidebar */}
+                    <Route element={<TripLayout/>}>
+                        <Route path="destinations/review" element={<ReviewDestinationsInterrupt/>}/>
+                        <Route path="destinations/order" element={<OrderReviewInterrupt/>}/>
+                        <Route path="dates/range" element={<StartDateRequestInterrupt/>}/>
+                        <Route path="dates/review" element={<DateReviewInterrupt/>}/>
+                        <Route path="loyalty" element={<LoyaltyProgrammesRequestInterrupt/>}/>
+                        <Route path="home-context" element={<HomeContextRequestInterrupt/>}/>
+                        <Route path="transport" element={<TransportModeReviewInterrupt/>}/>
+                        <Route path="stays/types" element={<StayTypeReviewInterrupt/>}/>
+                        <Route path="stays" element={<StayReviewInterrupt/>}/>
+                        <Route path="summary" element={<TripSummary/>}/>
+                    </Route>
                 </Route>
             </Routes>
         </BrowserRouter>
