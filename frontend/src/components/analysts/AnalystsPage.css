@@ -1,0 +1,218 @@
+/* src/components/analysts/AnalystsPage.css */
+
+/* Dims the meadow photo — FullBleedHero's scrim reads this variable */
+.analysts-screen {
+    --scrim-top: linear-gradient(var(--c-photo-dim), var(--c-photo-dim));
+}
+
+/* ==========================================================
+   PAGE GRID
+   top row:    Journeyman · Chapter · No. 1
+   middle:     panel | rail
+   bottom row: Travel Analysts + note bar | action
+   ========================================================== */
+.analysts {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--rail-width);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "top    top"
+        "panel  rail"
+        "bottom action";
+    column-gap: var(--gap-columns);
+    row-gap: var(--gap-rows);
+}
+
+/* Three labels with a true center: equal side columns keep "Chapter" centered */
+.analysts__top {
+    grid-area: top;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+}
+.analysts__top > :last-child { justify-self: end; }
+
+/* Glass without blur on this page — the Figma frames keep the dandelions sharp.
+   (Don't change --blur-panel itself; StartTrip uses it.) */
+.analysts__panel,
+.note-bar,
+.notes__item,
+.analyst__textarea {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+
+/* ==========================================================
+   MAIN PANEL
+   ========================================================== */
+.analysts__panel {
+    grid-area: panel;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--panel-pad-lg);
+    border-radius: var(--radius-panel-lg);
+}
+
+/* ---------- Open analyst ---------- */
+.analyst { display: grid; gap: 0.75rem; }
+.analyst__name { margin: 0; font-size: var(--fs-analyst-name); font-weight: 700; }
+.analyst__role { margin: 0; font-size: var(--fs-analyst-role); font-weight: 500; }
+.analyst__body {
+    margin: 0.5rem 0 0;
+    max-width: 65ch;
+    font-size: var(--fs-analyst-body);
+    line-height: var(--body-lh);
+}
+.analyst__meta { margin: 0; font-size: var(--fs-analyst-body); opacity: 0.85; }
+
+.analyst__note { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.analyst__note-label { font-size: var(--fs-analyst-body); }
+.analyst__textarea {
+    padding: 1rem 1.25rem;
+    border-color: transparent;
+    border-radius: var(--radius-button);
+    color: var(--c-text);
+    font: inherit;
+    font-size: var(--fs-body);
+    line-height: var(--body-lh);
+    resize: vertical;
+}
+.analyst__textarea::placeholder { color: var(--c-text-muted); font-style: italic; }
+.analyst__actions { display: flex; justify-content: flex-end; gap: 0.75rem; }
+
+/* ---------- Notes list ---------- */
+.notes { display: flex; flex-direction: column; gap: 1rem; min-height: 100%; }
+.notes__title { margin: 0; font-size: var(--fs-analyst-role); font-weight: 700; }
+.notes__empty { align-self: flex-start; font-size: 0.875rem; opacity: 0.85; }
+
+.notes__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.75rem;
+    counter-reset: note;
+}
+.notes__item {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-color: transparent;
+    border-radius: var(--radius-button);
+    font-size: var(--fs-body);
+    line-height: var(--body-lh);
+    counter-increment: note;
+}
+.notes__item::before { content: counter(note) "."; margin-right: 0.5rem; }
+.notes__item > span { flex: 1; }
+.notes__tag { font-weight: 700; }
+.notes__remove { font-size: 1.25rem; line-height: 1; opacity: 0.7; }
+.notes__remove:hover { opacity: 1; }
+.notes__clear { margin-top: auto; align-self: flex-end; }
+
+
+/* ==========================================================
+   RAIL
+   ========================================================== */
+.analysts__rail {
+    grid-area: rail;
+    align-self: start;
+    display: grid;
+    gap: var(--gap-rail);
+}
+
+.chip {
+    position: relative;
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: var(--radius-chip);
+    background: transparent;          /* outline only at rest, like the frames */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: var(--c-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.chip:hover,
+.chip[aria-pressed="true"] { background: var(--c-panel-fill); }   /* open analyst gets the tint */
+.chip__name { font-size: var(--fs-chip-name); font-weight: 600; }
+.chip__role { font-size: var(--fs-chip-role); }
+.chip__dot {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--c-text);
+}
+
+
+/* ==========================================================
+   BOTTOM ROW
+   ========================================================== */
+.analysts__bottom {
+    grid-area: bottom;
+    display: flex;
+    align-items: center;
+    gap: var(--gap-columns);
+}
+
+.note-bar {
+    flex: 1;
+    max-width: 38rem;
+    margin-inline: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1.4rem;
+    border-radius: var(--radius-pill);
+    background: transparent;
+}
+.note-bar__input {
+    flex: 1;
+    field-sizing: content;            /* grows with Shift+Enter lines (Chrome/Brave) */
+    max-height: 6lh;
+    padding: 0;
+    border: 0;
+    outline: none;
+    resize: none;
+    background: transparent;
+    color: var(--c-text);
+    font: inherit;
+    font-size: var(--fs-body);
+}
+.note-bar__input::placeholder { color: var(--c-text-muted); }
+.note-bar__hint { opacity: 0.8; }
+
+.analysts__action {
+    grid-area: action;
+    justify-self: center;
+    display: grid;
+    justify-items: center;
+    gap: 0.25rem;
+}
+.analysts__hint { margin: 0; font-size: 0.875rem; }
+.analysts__submit { font-size: var(--fs-action); font-weight: 700; }
+.analysts__submit:disabled { opacity: 0.5; cursor: progress; }
+
+
+/* ==========================================================
+   NARROW SCREENS — rail becomes a scrolling row above the panel
+   ========================================================== */
+@media (max-width: 900px) {
+    .analysts {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "top" "rail" "panel" "bottom" "action";
+        grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    }
+    .analysts__rail { display: flex; overflow-x: auto; gap: 0.75rem; }
+    .chip { flex: 0 0 auto; }
+    .analysts__bottom .label { display: none; }
+}

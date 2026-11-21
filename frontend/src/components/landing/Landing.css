@@ -11,11 +11,19 @@
     align-items: end;
 }
 
-.landing__masthead { grid-area: masthead; align-self: start; }
+.landing__masthead {
+  position: absolute;
+  top: 50%; left: 50%;
+  translate: -50% -60%;          /* a little above center */
+  width: max-content;
+  text-align: center;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 0.35);
+}
 
 .masthead {
     margin: 0;
-    color: var(--c-text);
+    position: static;
+    color: rgb(255 255 255 / 0.9);
     font-size: var(--fs-masthead);
     font-weight: var(--masthead-weight);
     font-style: italic;
@@ -42,7 +50,7 @@
     font-size: var(--fs-cue);
 }
 
-.folio { grid-area: folio; justify-self: end; margin: 0; font-size: var(--fs-folio); }
+.folio { grid-area: folio; justify-self: end; margin: 0; font-size: var(--fs-folio); font-weight: 700;}
 
 @media (max-width: 600px) {
     .landing {
